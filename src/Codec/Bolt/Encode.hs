@@ -10,7 +10,9 @@ module Codec.Bolt.Encode(
   int16,
   int32,
   int64,
-  text
+  text,
+  string,
+  list
 ) where
 
 import           Data.Char               (toUpper)
@@ -37,6 +39,7 @@ data BoltOutRep = BNull BoltOutRep
                 | BInt32 Int32 BoltOutRep
                 | BInt64 Int64 BoltOutRep
                 | BText T.Text BoltOutRep
+                | BList [BoltOut] BoltOutRep
                 | BEnd
 
 type Encoder t = t -> BoltOut
@@ -49,7 +52,7 @@ instance Monoid BoltOut where
   {-# INLINE mappend #-}
   b1 `mappend` b2   = BoltOut (unOut b1 . unOut b2)
   {-# INLINE mconcat #-}
-  mconcat           = foldr mappend mempty
+  mconcat           = foldl mappend mempty
 
 instance Show BoltOut where
   show = concat . intersperse " " . map hexWord8 . L.unpack . BB.toLazyByteString . toBuilder
@@ -75,13 +78,24 @@ toBuilder vs0 = step (unOut vs0 BEnd)
       where
         bytes = TE.encodeUtf8 value
         numBytes = B.length bytes
+    step (BList [] cont) = BB.word8 0x90 <> step cont
+    step (BList elts cont) = buildList elts 0 mempty
+      where
+        buildList :: [BoltOut] -> Int -> BoltOut -> BB.Builder
+        buildList [] numElts folded | numElts <= 15 = BB.word8 (0x90 .|. (fromIntegral numElts)) <> (buildCont folded)
+        buildList [] numElts folded | numElts <= 255 = BB.word8 0xd4 <> BB.word8 (fromIntegral numElts) <> (buildCont folded)
+        buildList [] numElts folded | numElts <= 65535 = BB.word8 0xd5 <> BB.word16BE (fromIntegral numElts) <> (buildCont folded)
+        buildList [] numElts folded = BB.word8 0xd6 <> BB.word32BE (fromIntegral numElts) <> (buildCont folded)
+        buildList (b:bs) numElts folded = buildList bs (numElts + 1) (folded `mappend` b)
+        buildCont :: BoltOut -> BB.Builder
+        buildCont folded = step ((unOut folded) cont)
     step BEnd = mempty
 
 buildText :: Int -> B.ByteString -> BB.Builder
 buildText numBytes _ | numBytes == 0 = BB.word8 0x80
 buildText numBytes bytes | numBytes <= 15 = BB.word8 (0x80 .|. (fromIntegral numBytes)) <> BB.byteString bytes
 buildText numBytes bytes | numBytes <= 255 = BB.word8 0xd0 <> BB.word8 (fromIntegral numBytes) <> BB.byteString bytes
-buildText numBytes bytes | numBytes <= 65536 = BB.word8 0xd1 <> BB.word16BE (fromIntegral numBytes) <> BB.byteString bytes
+buildText numBytes bytes | numBytes <= 65535 = BB.word8 0xd1 <> BB.word16BE (fromIntegral numBytes) <> BB.byteString bytes
 buildText numBytes bytes = BB.word8 0xd2 <> BB.word32BE (fromIntegral numBytes) <> BB.byteString bytes
 
 {-# INLINE null #-}
@@ -123,3 +137,11 @@ int64 value = BoltOut $ (BInt64 value)
 {-# INLINE text #-}
 text :: T.Text -> BoltOut
 text value = BoltOut $ (BText value)
+
+{-# INLINE string #-}
+string :: String -> BoltOut
+string value = BoltOut $ (BText (T.pack value))
+
+{-# INLINE list #-}
+list :: [BoltOut] -> BoltOut
+list elts = BoltOut $ (BList elts)

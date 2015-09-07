@@ -27,6 +27,9 @@ createEncodingTests =
       it "encodes 96000 as an int32" $ show (E.int32 $ fromIntegral 96000) `shouldBe` "CA 00 01 77 00"
       it "encodes 999999999 as an int64" $ show (E.int64 $ fromIntegral 96000) `shouldBe` "CB 00 00 00 00 00 01 77 00"
     describe "encoding of text" $ do
-      it "encodes ''" $ show (E.text $ T.pack "") `shouldBe` "80"
-      it "encodes 'hallo'" $ show (E.text $ T.pack "hallo") `shouldBe` "85 68 61 6C 6C 6F"
-      it "encodes 'abcdefghijklmonpqrstuvwxyz'" $ show (E.text $ T.pack "abcdefghijklmonpqrstuvwxyz") `shouldBe` "D0 1A 61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6F 6E 70 71 72 73 74 75 76 77 78 79 7A"
+      it "encodes ''" $ show (E.string "") `shouldBe` "80"
+      it "encodes 'hallo'" $ show (E.string "hallo") `shouldBe` "85 68 61 6C 6C 6F"
+      it "encodes 'abcdefghijklmonpqrstuvwxyz'" $ show (E.string "abcdefghijklmonpqrstuvwxyz") `shouldBe` "D0 1A 61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6F 6E 70 71 72 73 74 75 76 77 78 79 7A"
+    describe "encoding of lists" $ do
+      it "encodes []" $ show (E.list []) `shouldBe` "90"
+      it "encodes [1, 2, 3]" $ show (E.list [E.tinyInt 1, E.tinyInt 2, E.tinyInt 3]) `shouldBe` "93 01 02 03"
