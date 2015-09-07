@@ -1,0 +1,62 @@
+name:                neo4j-driver
+version:             0.1.0.0
+synopsis:            Neo4j driver for connecting to the database using the bolt protocol
+description:         Please see README.md
+homepage:            http://github.com/boggle/neo4j-haskell-driver
+license:             APL 2.0
+license-file:        LICENSE
+author:              Stefan Plantikow
+maintainer:          stefan.plantikow@googlemail.com
+-- copyright:
+category:            Data
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+extra-source-files:
+  LICENSE
+  README.md
+
+library
+  hs-source-dirs:     src
+
+  exposed-modules:    Codec.Bolt.Encode
+
+  build-depends:      base               >= 4.7 && < 5
+                    , bytestring         >= 0.10.6
+                    , bytestring-builder >= 0.10.6
+                    , text               >= 1.2.1
+                    , containers         >= 0.5.6
+                    , array              >= 0.5.1
+                    , ghc-prim
+
+  default-language:   Haskell2010
+
+  ghc-options:        -Wall -O2
+  ghc-prof-options:   -prof -auto-all
+
+  if impl(ghc >= 7.2.1)
+    cpp-options: -DGENERICS
+
+-- executable neo4j-driver-exe
+--   hs-source-dirs:      app
+--   main-is:             Main.hs
+--   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+--   build-depends:       base
+--                      , neo4j-driver
+--   default-language:    Haskell2010
+
+test-suite neo4j-driver-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Test.hs
+  build-depends:       base
+                     , neo4j-driver
+                     , tasty             >= 0.10.1
+                     , tasty-hspec       >= 1.1.2
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/boggle/neo4j-haskell-driver
