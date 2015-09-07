@@ -3,7 +3,7 @@ version:             0.1.0.0
 synopsis:            Neo4j driver for connecting to the database using the bolt protocol
 description:         Please see README.md
 homepage:            http://github.com/boggle/neo4j-haskell-driver
-license:             APL 2.0
+license:             Apache-2.0
 license-file:        LICENSE
 author:              Stefan Plantikow
 maintainer:          stefan.plantikow@googlemail.com

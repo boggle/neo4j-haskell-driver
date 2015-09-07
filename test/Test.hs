@@ -9,7 +9,8 @@ main = do
 
 createEncodingTests =
   testSpec "Codec.Bolt.Encode" $
-    describe "encoder" $ do
-      it "encodes true" $ (show E.true) `shouldBe` "c3"
-      it "encodes false" $ (show E.false) `shouldBe` "c2"
-      it "encodes null" $ (show E.null) `shouldBe` "c0"
+    describe "encoding" $ do
+      it "encodes null" $ (show E.null) `shouldBe` "C0"
+      it "encodes double" $ (show (E.double 1.1)) `shouldBe` "C1 3F F1 99 99 99 99 99 9A"
+      it "encodes false" $ (show E.false) `shouldBe` "C2"
+      it "encodes true" $ (show E.true) `shouldBe` "C3"
