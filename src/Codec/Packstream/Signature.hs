@@ -6,7 +6,7 @@ module Codec.Packstream.Signature(
 
 import           Data.Word
 
-data Signature = Sig Word8
+data Signature = Sig Word8 deriving (Eq, Show)
 
 {-# INLINE signature #-}
 signature :: Word8 -> Signature

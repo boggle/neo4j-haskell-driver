@@ -10,6 +10,7 @@ module Codec.Packstream.Encode(
   int16,
   int32,
   int64,
+  int,
   text,
   string,
   list,
@@ -29,13 +30,14 @@ import           Data.List                  (intersperse)
 import           Data.Monoid
 import qualified Data.Text                  as T
 import           Data.Text.Encoding         as TE
+import           Data.Word
 import           Numeric                    (showHex)
 import           Prelude                    hiding (map, null, putChar)
 import qualified Prelude                    as PRE
 
-data PackStreamRep = BNull PackStreamRep
+data PackStreamRep = PNull PackStreamRep
                    | PFalse PackStreamRep
-                   | BTrue PackStreamRep
+                   | PTrue PackStreamRep
                    | PFloat64 Double PackStreamRep
                    | PTinyInt Int8 PackStreamRep
                    | PInt8 Int8 PackStreamRep
@@ -72,12 +74,12 @@ instance Show PackStream where
 toBuilder :: PackStream -> BB.Builder
 toBuilder vs0 = step (unOut vs0 PEnd)
   where
-    step (BNull cont) = BB.word8 0xc0 <> step cont
+    step (PNull cont) = BB.word8 0xc0 <> step cont
     step (PFloat64 value cont) = BB.word8 0xc1 <> BB.doubleBE value <> step cont
     step (PFalse cont) = BB.word8 0xc2 <> step cont
-    step (BTrue cont) = BB.word8 0xc3 <> step cont
+    step (PTrue cont) = BB.word8 0xc3 <> step cont
     step (PTinyInt value cont) | not $ testBit value 7 = BB.int8 value <> step cont
-    step (PTinyInt value cont) | value .&. (-16) == (-16) = BB.int8 value <> step cont
+    step (PTinyInt value cont) | ((fromIntegral value) :: Word8) .&. 240 == 240 = BB.int8 value <> step cont
     step (PTinyInt value cont) = BB.word8 0xc8 <> BB.int8 value <> step cont
     step (PInt8 value cont) = BB.word8 0xc8 <> BB.int8 value <> step cont
     step (PInt16 value cont) = BB.word8 0xc9 <> BB.int16BE value <> step cont
@@ -123,7 +125,7 @@ toBuilder vs0 = step (unOut vs0 PEnd)
 
 {-# INLINE null #-}
 null :: PackStream
-null = PackStream $ BNull
+null = PackStream $ PNull
 
 {-# INLINE false #-}
 false :: PackStream
@@ -131,7 +133,7 @@ false = PackStream $ PFalse
 
 {-# INLINE true #-}
 true :: PackStream
-true = PackStream $ BTrue
+true = PackStream $ PTrue
 
 {-# INLINE float64 #-}
 float64 :: Double -> PackStream
@@ -156,6 +158,22 @@ int32 value = PackStream $ PInt32 value
 {-# INLINE int64 #-}
 int64 :: Int64 -> PackStream
 int64 value = PackStream $ PInt64 value
+
+int :: Int -> PackStream
+int value =
+  if fromIntegral value8 == value64 then
+    tinyInt value8
+  else if fromIntegral value16 == value64 then
+    int16 value16
+  else if fromIntegral value32 == value64 then
+    int32 value32
+  else
+    int64 value64
+  where
+    value8 = fromIntegral value :: Int8
+    value16 = fromIntegral value :: Int16
+    value32 = fromIntegral value :: Int32
+    value64 = fromIntegral value :: Int64
 
 {-# INLINE text #-}
 text :: T.Text -> PackStream
