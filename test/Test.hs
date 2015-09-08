@@ -1,9 +1,10 @@
 import           Test.Tasty
 import           Test.Tasty.Hspec
 
-import           Codec.Bolt.Encode as E
-import           Codec.Bolt.Encode ((@@))
-import           Data.Text         as T
+import           Codec.Packstream.Encode    as E
+import           Codec.Packstream.Encode    ((@@))
+import           Codec.Packstream.Signature
+import           Data.Text                  as T
 
 main = do
     encodingTests <- createEncodingTests
@@ -34,6 +35,9 @@ createEncodingTests =
     describe "encoding of lists" $ do
       it "encodes []" $ show (E.list []) `shouldBe` "90"
       it "encodes [1, 2, 3]" $ show (E.list [E.tinyInt 1, E.tinyInt 2, E.tinyInt 3]) `shouldBe` "93 01 02 03"
+    describe "encoding of structs" $ do
+      it "encodes Struct (signature=0x01) { 1, 2, 3 }" $ show (E.structure (signature 1) [E.tinyInt 1, E.tinyInt 2, E.tinyInt 3]) `shouldBe` "B3 01 01 02 03"
+      it "encodes Struct (signature=0x01) { 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6 }" $ show longStruct `shouldBe` "DC 10 01 01 02 03 04 05 06 07 08 09 00 01 02 03 04 05 06"
     describe "encoding of maps" $ do
       it "encodes {}" $ show  (E.map []) `shouldBe` "A0"
       it "encodes {a: 1}" $ show  (E.map [E.string "a" @@ E.tinyInt 1]) `shouldBe` "A1 81 61 01"
@@ -56,4 +60,22 @@ createEncodingTests =
             E.string "n" @@ E.tinyInt 4,
             E.string "o" @@ E.tinyInt 5,
             E.string "p" @@ E.tinyInt 6
+          ]
+        longStruct = E.structure (signature 1) [
+            E.tinyInt 1,
+            E.tinyInt 2,
+            E.tinyInt 3,
+            E.tinyInt 4,
+            E.tinyInt 5,
+            E.tinyInt 6,
+            E.tinyInt 7,
+            E.tinyInt 8,
+            E.tinyInt 9,
+            E.tinyInt 0,
+            E.tinyInt 1,
+            E.tinyInt 2,
+            E.tinyInt 3,
+            E.tinyInt 4,
+            E.tinyInt 5,
+            E.tinyInt 6
           ]
