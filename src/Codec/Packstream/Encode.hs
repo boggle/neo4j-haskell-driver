@@ -94,33 +94,37 @@ toBuilder vs0 = step (unOut vs0 PEnd)
         build numBytes bytes | numBytes <= 15 = BB.word8 (0x80 .|. (fromIntegral numBytes)) <> BB.byteString bytes
         build numBytes bytes | numBytes <= 255 = BB.word8 0xd0 <> BB.word8 (fromIntegral numBytes) <> BB.byteString bytes
         build numBytes bytes | numBytes <= 65535 = BB.word8 0xd1 <> BB.word16BE (fromIntegral numBytes) <> BB.byteString bytes
-        build numBytes bytes = BB.word8 0xd2 <> BB.word32BE (fromIntegral numBytes) <> BB.byteString bytes
+        build numBytes bytes | numBytes <= 2147483647 = BB.word8 0xd2 <> BB.word32BE (fromIntegral numBytes) <> BB.byteString bytes
+        build _ _ = error "Cannot encode strings which encoded using utf8 are longer than 2147483647 bytes"
     step (PList [] cont) = BB.word8 0x90 <> step cont
     step (PList elts cont) = build elts 0 mempty
       where
         build :: [PackStream] -> Int -> PackStream -> BB.Builder
+        build (b:bs) numElts folded = build bs (numElts + 1) (folded `mappend` b)
         build [] numElts folded | numElts <= 15 = BB.word8 (0x90 .|. (fromIntegral numElts)) <> step (run folded cont)
         build [] numElts folded | numElts <= 255 = BB.word8 0xd4 <> BB.word8 (fromIntegral numElts) <> step (run folded cont)
         build [] numElts folded | numElts <= 65535 = BB.word8 0xd5 <> BB.word16BE (fromIntegral numElts) <> step (run folded cont)
-        build [] numElts folded = BB.word8 0xd6 <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
-        build (b:bs) numElts folded = build bs (numElts + 1) (folded `mappend` b)
+        build [] numElts folded | numElts <= 2147483647 = BB.word8 0xd6 <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
+        build [] _ _ = error "Cannot encode more than 2147483647 elements in a list"
     step (PMap [] cont) = BB.word8 0xa0 <> step cont
     step (PMap elts cont) = build elts 0 mempty
       where
         build :: [(PackStream, PackStream)] -> Int -> PackStream -> BB.Builder
+        build ((key, value):bs) numElts folded = build bs (numElts + 1) (folded `mappend` key `mappend` value)
         build [] numElts folded | numElts <= 15 = BB.word8 (0xa0 .|. (fromIntegral numElts)) <> step (run folded cont)
         build [] numElts folded | numElts <= 255 = BB.word8 0xd8 <> BB.word8 (fromIntegral numElts) <> step (run folded cont)
         build [] numElts folded | numElts <= 65535 = BB.word8 0xd9 <> BB.word16BE (fromIntegral numElts) <> step (run folded cont)
-        build [] numElts folded = BB.word8 0xda <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
-        build ((key, value):bs) numElts folded = build bs (numElts + 1) (folded `mappend` key `mappend` value)
+        build [] numElts folded | numElts <= 2147483647 = BB.word8 0xda <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
+        build [] _ _ = error "Cannot encode more than 2147483647 entries in a map"
     step (PStructure sig [] cont) = BB.word8 0xb0 <> BB.word8 (signatureByte sig) <> step cont
     step (PStructure sig elts cont) = build elts 0 mempty
       where
         build :: [PackStream] -> Int -> PackStream -> BB.Builder
+        build (b:bs) numElts folded = build bs (numElts + 1) (folded `mappend` b)
         build [] numElts folded | numElts <= 15 = BB.word8 (0xb0 .|. (fromIntegral numElts)) <> BB.word8 (signatureByte sig) <> step (run folded cont)
         build [] numElts folded | numElts <= 255 = BB.word8 0xdc <> BB.word8 (fromIntegral numElts) <> BB.word8 (signatureByte sig) <> step (run folded cont)
-        build [] numElts folded = BB.word8 0xdd <> BB.word16BE (fromIntegral numElts) <> BB.word8 (signatureByte sig) <> step (run folded cont)
-        build (b:bs) numElts folded = build bs (numElts + 1) (folded `mappend` b)
+        build [] numElts folded | numElts <= 65535 = BB.word8 0xdd <> BB.word16BE (fromIntegral numElts) <> BB.word8 (signatureByte sig) <> step (run folded cont)
+        build [] _ _ = error "Cannot encode more than 65535 elements in a structure"
     step PEnd = mempty
 
 {-# INLINE null #-}
