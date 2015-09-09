@@ -14,7 +14,9 @@ module Codec.Packstream.Encode(
   text,
   string,
   list,
+  listStream,
   map,
+  mapStream,
   (@@),
   structure
 ) where
@@ -48,7 +50,9 @@ data PackStreamRep = PNull PackStreamRep
                    | PInt64 Int64 PackStreamRep
                    | PText T.Text PackStreamRep
                    | PList [PackStream] PackStreamRep
+                   | PListStream [PackStream] PackStreamRep
                    | PMap [(PackStream, PackStream)] PackStreamRep
+                   | PMapStream [(PackStream, PackStream)] PackStreamRep
                    | PStructure Signature [PackStream] PackStreamRep
                    | PEnd
 
@@ -121,7 +125,8 @@ toBuilder vs0 = step (unOut vs0 PEnd)
         build [] numElts folded | numElts <= 255 = BB.word8 _LIST_8 <> BB.word8 (fromIntegral numElts) <> step (run folded cont)
         build [] numElts folded | numElts <= 65535 = BB.word8 _LIST_16 <> BB.word16BE (fromIntegral numElts) <> step (run folded cont)
         build [] numElts folded | numElts <= 2147483647 = BB.word8 _LIST_32 <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
-        build [] _ _ = error "Cannot encode more than 2147483647 elements in a list"
+        build bs _ folded = BB.word8 _LIST_STREAM <> toBuilder (foldl (<>) folded bs) <> BB.word8 _END_OF_STREAM <> step cont
+    step (PListStream elts cont) = foldl (<>) (BB.word8 _LIST_STREAM) (PRE.map toBuilder elts) <> BB.word8 _END_OF_STREAM <> step cont
     step (PMap [] cont) = BB.word8 _TINY_MAP_FIRST <> step cont
     step (PMap elts cont) = build elts 0 mempty
       where
@@ -131,7 +136,10 @@ toBuilder vs0 = step (unOut vs0 PEnd)
         build [] numElts folded | numElts <= 255 = BB.word8 _MAP_8 <> BB.word8 (fromIntegral numElts) <> step (run folded cont)
         build [] numElts folded | numElts <= 65535 = BB.word8 _MAP_16 <> BB.word16BE (fromIntegral numElts) <> step (run folded cont)
         build [] numElts folded | numElts <= 2147483647 = BB.word8 _MAP_32 <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
-        build [] _ _ = error "Cannot encode more than 2147483647 entries in a map"
+        build bs _ folded = BB.word8 _MAP_STREAM <> foldl (<>) (toBuilder folded) (PRE.map buildElt bs) <> BB.word8 _END_OF_STREAM <> step cont
+        buildElt (l, r) = toBuilder l <> toBuilder r
+    step (PMapStream elts cont) = foldl (<>) (BB.word8 _MAP_STREAM) (PRE.map buildElt elts) <> step cont
+      where buildElt (l, r) = toBuilder l <> toBuilder r
     step (PStructure sig [] cont) = BB.word8 0xb0 <> BB.word8 (signatureByte sig) <> step cont
     step (PStructure sig elts cont) = build elts 0 mempty
       where
@@ -195,6 +203,10 @@ string value = PackStream $ PText (T.pack value)
 list :: [PackStream] -> PackStream
 list elts = PackStream $ PList elts
 
+{-# INLINE listStream #-}
+listStream :: [PackStream] -> PackStream
+listStream elts = PackStream $ PListStream elts
+
 {-# INLINE (@@) #-}
 (@@) ::  PackStream -> PackStream -> (PackStream, PackStream)
 infix 0 @@
@@ -203,6 +215,10 @@ l @@ r = (l, r)
 {-# INLINE map #-}
 map :: [(PackStream, PackStream)] -> PackStream
 map elts = PackStream $ PMap elts
+
+{-# INLINE mapStream #-}
+mapStream :: [(PackStream, PackStream)] -> PackStream
+mapStream elts = PackStream $ PMapStream elts
 
 {-# INLINE structure #-}
 structure :: Signature -> [PackStream] -> PackStream
