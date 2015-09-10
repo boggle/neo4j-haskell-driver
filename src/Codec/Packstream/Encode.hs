@@ -1,5 +1,4 @@
 module Codec.Packstream.Encode(
-  Encoder,
   PackStream,
   null,
   false,
@@ -18,7 +17,10 @@ module Codec.Packstream.Encode(
   map,
   mapStream,
   (@@),
-  structure
+  structure,
+  encode,
+  encodePair,
+  fitsTinyInt
 ) where
 
 import           Codec.Packstream.Markers
@@ -33,7 +35,6 @@ import           Data.List                  (intersperse)
 import           Data.Monoid
 import qualified Data.Text                  as T
 import           Data.Text.Encoding         as TE
-import           Data.Word
 import           Numeric                    (showHex)
 import           Prelude                    hiding (map, null, putChar)
 import qualified Prelude                    as PRE
@@ -56,100 +57,102 @@ data PackStreamRep = PNull PackStreamRep
                    | PStructure Signature [PackStream] PackStreamRep
                    | PEnd
 
-type Encoder t = t -> PackStream
-
-newtype PackStream = PackStream { unOut :: PackStreamRep -> PackStreamRep }
+newtype PackStream = PackStream { unPackStream :: PackStreamRep -> PackStreamRep }
 
 instance Monoid PackStream where
   {-# INLINE mempty #-}
   mempty            = PackStream id
   {-# INLINE mappend #-}
-  b1 `mappend` b2   = PackStream (unOut b1 . unOut b2)
+  b1 `mappend` b2   = PackStream (unPackStream b1 . unPackStream b2)
   {-# INLINE mconcat #-}
   mconcat           = foldl mappend mempty
 
-run :: PackStream -> PackStreamRep -> PackStreamRep
-run boltOut cont = (unOut boltOut) cont
-
 instance Show PackStream where
-  show = concat . intersperse " " . PRE.map hexWord8 . L.unpack . BB.toLazyByteString . toBuilder
+  show = concat . intersperse " " . PRE.map hexWord8 . L.unpack . BB.toLazyByteString . encode
     where
       hexWord8 w = pad (PRE.map toUpper (showHex w ""))
       pad cs = replicate (2 - length cs) '0' ++ cs
 
-toBuilder :: PackStream -> BB.Builder
-toBuilder vs0 = step (unOut vs0 PEnd)
+encode :: PackStream -> BB.Builder
+encode vs0 = step (unPackStream vs0 PEnd)
   where
-    step (PNull cont) = BB.word8 _NULL <> step cont
-    step (PFloat64 value cont) = BB.word8 _FLOAT_64 <> BB.doubleBE value <> step cont
-    step (PFalse cont) = BB.word8 _FALSE <> step cont
-    step (PTrue cont) = BB.word8 _TRUE <> step cont
-    step (PTinyInt value cont) | not $ testBit value 7 = BB.int8 value <> step cont
-    step (PTinyInt value cont) | ((fromIntegral value) :: Word8) .&. _NEG_TINY_INT_FIRST == _NEG_TINY_INT_FIRST = BB.int8 value <> step cont
-    step (PTinyInt value cont) = BB.word8 _INT_8 <> BB.int8 value <> step cont
-    step (PInt value cont) =
-      if fromIntegral value8 == value64 then
-        step (PTinyInt value8 cont)
-      else if fromIntegral value16 == value64 then
-        step (PInt16 value16 cont)
-      else if fromIntegral value32 == value64 then
-        step (PInt32 value32 cont)
-      else
-        step (PInt64 value64 cont)
-      where
-        value8 = fromIntegral value :: Int8
-        value16 = fromIntegral value :: Int16
-        value32 = fromIntegral value :: Int32
-        value64 = fromIntegral value :: Int64
-    step (PInt8 value cont) = BB.word8 _INT_8 <> BB.int8 value <> step cont
-    step (PInt16 value cont) = BB.word8 _INT_16 <> BB.int16BE value <> step cont
-    step (PInt32 value cont) = BB.word8 _INT_32 <> BB.int32BE value <> step cont
-    step (PInt64 value cont) = BB.word8 _INT_64 <> BB.int64BE value <> step cont
-    step (PText value cont) =
-      let encodedBytes = TE.encodeUtf8 value
-      in build (B.length encodedBytes) encodedBytes <> step cont
+    step (PNull cont) = mark _NULL cont
+    step (PFloat64 value cont) = wrap _FLOAT_64 cont $ BB.doubleBE value
+    step (PFalse cont) = mark _FALSE cont
+    step (PTrue cont) = mark _TRUE cont
+    step (PTinyInt value cont) | fitsTinyInt value = write cont $ BB.int8 value
+    step (PTinyInt value cont) = wrap _INT_8 cont $ BB.int8 value
+    step (PInt8 value cont) = wrap _INT_8 cont $ BB.int8 value
+    step (PInt16 value cont) = wrap _INT_16 cont $ BB.int16BE value
+    step (PInt32 value cont) = wrap _INT_32 cont $ BB.int32BE value
+    step (PInt64 value cont) = wrap _INT_64 cont $ BB.int64BE value
+    step (PInt value cont) = case value of
+        _ | value64 == fromIntegral value8 -> (if fitsTinyInt value8 then write else wrap _INT_8) cont $ BB.int8 value8
+        _ | value64 == fromIntegral value16 -> wrap _INT_16 cont $ BB.int16BE value16
+        _ | value64 == fromIntegral value32 -> wrap _INT_32 cont $ BB.int32BE value32
+        _ -> wrap _INT_64 cont $ BB.int64BE value64
+        where
+          value64 = fromIntegral value :: Int64
+          value32 = fromIntegral value :: Int32
+          value16 = fromIntegral value :: Int16
+          value8 = fromIntegral value :: Int8
+    step (PText value cont) = build (B.length encodedBytes) encodedBytes
       where
         build :: Int -> B.ByteString -> BB.Builder
-        build numBytes _ | numBytes == 0 = BB.word8 _TINY_TEXT_FIRST
-        build numBytes bytes | numBytes <= 15 = BB.word8 (_TINY_TEXT_FIRST .|. (fromIntegral numBytes)) <> BB.byteString bytes
-        build numBytes bytes | numBytes <= 255 = BB.word8 _TEXT_8 <> BB.word8 (fromIntegral numBytes) <> BB.byteString bytes
-        build numBytes bytes | numBytes <= 65535 = BB.word8 _TEXT_16 <> BB.word16BE (fromIntegral numBytes) <> BB.byteString bytes
-        build numBytes bytes | numBytes <= 2147483647 = BB.word8 _TEXT_32 <> BB.word32BE (fromIntegral numBytes) <> BB.byteString bytes
+        build numBytes _ | numBytes == 0 = mark _TINY_TEXT_FIRST cont
+        build numBytes bytes | numBytes <= 15 = wrap (_TINY_TEXT_FIRST .|. (fromIntegral numBytes)) cont $ BB.byteString bytes
+        build numBytes bytes | numBytes <= 255 = wrap _TEXT_8 cont $ BB.word8 (fromIntegral numBytes) <> BB.byteString bytes
+        build numBytes bytes | numBytes <= 65535 = wrap _TEXT_16 cont $ BB.word16BE (fromIntegral numBytes) <> BB.byteString bytes
+        build numBytes bytes | numBytes <= 2147483647 = wrap _TEXT_32 cont $ BB.word32BE (fromIntegral numBytes) <> BB.byteString bytes
         build _ _ = error "Cannot encode strings which encoded using utf8 are longer than 2147483647 bytes"
-    step (PList [] cont) = BB.word8 _TINY_LIST_FIRST <> step cont
+        encodedBytes = TE.encodeUtf8 value
+    step (PList [] cont) = mark _TINY_LIST_FIRST cont
     step (PList elts cont) = build elts 0 mempty
       where
         build :: [PackStream] -> Int -> PackStream -> BB.Builder
         build (b:bs) numElts folded = build bs (numElts + 1) (folded `mappend` b)
-        build [] numElts folded | numElts <= 15 = BB.word8 (_TINY_LIST_FIRST  .|. (fromIntegral numElts)) <> step (run folded cont)
-        build [] numElts folded | numElts <= 255 = BB.word8 _LIST_8 <> BB.word8 (fromIntegral numElts) <> step (run folded cont)
-        build [] numElts folded | numElts <= 65535 = BB.word8 _LIST_16 <> BB.word16BE (fromIntegral numElts) <> step (run folded cont)
-        build [] numElts folded | numElts <= 2147483647 = BB.word8 _LIST_32 <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
-        build bs _ folded = BB.word8 _LIST_STREAM <> toBuilder (foldl (<>) folded bs) <> BB.word8 _END_OF_STREAM <> step cont
-    step (PListStream elts cont) = foldl (<>) (BB.word8 _LIST_STREAM) (PRE.map toBuilder elts) <> BB.word8 _END_OF_STREAM <> step cont
+        build [] numElts folded | numElts <= 15 = mark (_TINY_LIST_FIRST  .|. (fromIntegral numElts)) $ unPackStream folded cont
+        build [] numElts folded | numElts <= 255 = wrap _LIST_8 (unPackStream folded cont) $ BB.word8 (fromIntegral numElts)
+        build [] numElts folded | numElts <= 65535 = wrap _LIST_16 (unPackStream folded cont) $ BB.word16BE (fromIntegral numElts)
+        build [] numElts folded | numElts <= 2147483647 = wrap _LIST_32 (unPackStream folded cont) $ BB.word32BE (fromIntegral numElts)
+        build bs _ folded = stream _LIST_STREAM cont $ encode (foldl (<>) folded bs)
+    step (PListStream elts cont) = stream _LIST_STREAM cont $ foldl (<>) mempty (PRE.map encode elts)
     step (PMap [] cont) = BB.word8 _TINY_MAP_FIRST <> step cont
     step (PMap elts cont) = build elts 0 mempty
       where
         build :: [(PackStream, PackStream)] -> Int -> PackStream -> BB.Builder
         build ((key, value):bs) numElts folded = build bs (numElts + 1) (folded `mappend` key `mappend` value)
-        build [] numElts folded | numElts <= 15 = BB.word8 (_TINY_MAP_FIRST .|. (fromIntegral numElts)) <> step (run folded cont)
-        build [] numElts folded | numElts <= 255 = BB.word8 _MAP_8 <> BB.word8 (fromIntegral numElts) <> step (run folded cont)
-        build [] numElts folded | numElts <= 65535 = BB.word8 _MAP_16 <> BB.word16BE (fromIntegral numElts) <> step (run folded cont)
-        build [] numElts folded | numElts <= 2147483647 = BB.word8 _MAP_32 <> BB.word32BE (fromIntegral numElts) <> step (run folded cont)
-        build bs _ folded = BB.word8 _MAP_STREAM <> foldl (<>) (toBuilder folded) (PRE.map buildElt bs) <> BB.word8 _END_OF_STREAM <> step cont
-        buildElt (l, r) = toBuilder l <> toBuilder r
-    step (PMapStream elts cont) = foldl (<>) (BB.word8 _MAP_STREAM) (PRE.map buildElt elts) <> step cont
-      where buildElt (l, r) = toBuilder l <> toBuilder r
+        build [] numElts folded | numElts <= 15 = mark (_TINY_MAP_FIRST .|. (fromIntegral numElts)) $ unPackStream folded cont
+        build [] numElts folded | numElts <= 255 = wrap _MAP_8 (unPackStream folded cont) $ BB.word8 (fromIntegral numElts)
+        build [] numElts folded | numElts <= 65535 = wrap _MAP_16 (unPackStream folded cont) $ BB.word16BE (fromIntegral numElts)
+        build [] numElts folded | numElts <= 2147483647 = wrap _MAP_32 (unPackStream folded cont) $ BB.word32BE (fromIntegral numElts)
+        build bs _ folded = stream _MAP_STREAM (unPackStream folded cont) $ foldl (<>) (encode folded) (PRE.map encodePair bs)
+    step (PMapStream elts cont) = stream _MAP_STREAM cont $ foldl (<>) mempty (PRE.map encodePair elts)
     step (PStructure sig [] cont) = BB.word8 0xb0 <> BB.word8 (signatureByte sig) <> step cont
     step (PStructure sig elts cont) = build elts 0 mempty
       where
         build :: [PackStream] -> Int -> PackStream -> BB.Builder
         build (b:bs) numElts folded = build bs (numElts + 1) (folded `mappend` b)
-        build [] numElts folded | numElts <= 15 = BB.word8 (_TINY_STRUCT_FIRST .|. (fromIntegral numElts)) <> BB.word8 (signatureByte sig) <> step (run folded cont)
-        build [] numElts folded | numElts <= 255 = BB.word8 _STRUCT_8 <> BB.word8 (fromIntegral numElts) <> BB.word8 (signatureByte sig) <> step (run folded cont)
-        build [] numElts folded | numElts <= 65535 = BB.word8 _STRUCT_16 <> BB.word16BE (fromIntegral numElts) <> BB.word8 (signatureByte sig) <> step (run folded cont)
+        build [] numElts folded | numElts <= 15 = wrap (_TINY_STRUCT_FIRST .|. (fromIntegral numElts)) (unPackStream folded cont) $ BB.word8 (signatureByte sig)
+        build [] numElts folded | numElts <= 255 = wrap _STRUCT_8 (unPackStream folded cont) $ BB.word8 (fromIntegral numElts) <> BB.word8 (signatureByte sig)
+        build [] numElts folded | numElts <= 65535 = wrap _STRUCT_16 (unPackStream folded cont) $ BB.word16BE (fromIntegral numElts) <> BB.word8 (signatureByte sig)
         build [] _ _ = error "Cannot encode more than 65535 elements in a structure"
     step PEnd = mempty
+    write cont builder = builder <> step cont
+    mark marker cont = write cont $ BB.word8 marker
+    wrap marker cont payload = write cont $ BB.word8 marker <> payload
+    stream marker cont payload = wrap marker cont $ payload <> (BB.word8 _END_OF_STREAM)
+
+{-# INLINE fitsTinyInt #-}
+fitsTinyInt :: Int8 -> Bool
+fitsTinyInt value = positivelyTiny || negativelyTiny
+  where
+    positivelyTiny = not $ testBit value 7
+    negativelyTiny = (fromIntegral value) .&. _NEG_TINY_INT_FIRST == _NEG_TINY_INT_FIRST
+
+{-# INLINE encodePair #-}
+encodePair :: (PackStream, PackStream) -> BB.Builder
+encodePair (l, r) = encode l <> encode r
 
 {-# INLINE null #-}
 null :: PackStream
