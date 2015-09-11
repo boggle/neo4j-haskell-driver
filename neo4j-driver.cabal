@@ -1,5 +1,5 @@
 name:                neo4j-driver
-version:             1.0.0.0
+version:             0.1.0.0
 synopsis:            Neo4j driver for connecting to the Neo4j graph database using the bolt protocol
 description:         Please see README.md
 homepage:            http://github.com/boggle/neo4j-haskell-driver
