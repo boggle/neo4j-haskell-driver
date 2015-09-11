@@ -7,10 +7,9 @@ license:             Apache-2.0
 license-file:        LICENSE.txt
 author:              Stefan Plantikow,
 maintainer:          Stefan Plantikow <stefan.plantikow@googlemail.com>
--- copyright:
+copyright:           2015 Neo Technology
 category:            Data
 build-type:          Simple
--- extra-source-files:
 cabal-version:       >=1.10
 
 extra-source-files:
@@ -34,9 +33,6 @@ library
 
   ghc-options:        -Wall -O2
   ghc-prof-options:   -prof -auto-all
-
-  if impl(ghc >= 7.2.1)
-    cpp-options: -DGENERICS
 
 test-suite neo4j-driver-test
   type:               exitcode-stdio-1.0

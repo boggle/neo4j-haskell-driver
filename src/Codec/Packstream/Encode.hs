@@ -36,7 +36,7 @@ import           Data.Monoid
 import qualified Data.Text                  as T
 import           Data.Text.Encoding         as TE
 import           Numeric                    (showHex)
-import           Prelude                    hiding (map, null, putChar)
+import           Prelude                    hiding (map, null)
 import qualified Prelude                    as PRE
 
 data PackStreamRep = PNull PackStreamRep
