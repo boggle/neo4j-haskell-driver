@@ -1,12 +1,12 @@
 name:                neo4j-driver
 version:             0.1.0.0
-synopsis:            Neo4j driver for connecting to the Neo4j graph database using the bolt protocol
+synopsis:            Neo4j driver for connecting to the Neo4j graph database using the Bolt protocol
 description:         Please see README.md
 homepage:            http://github.com/boggle/neo4j-haskell-driver
 license:             Apache-2.0
 license-file:        LICENSE.txt
-author:              Stefan Plantikow
-maintainer:          stefan.plantikow@googlemail.com
+author:              Stefan Plantikow,
+maintainer:          Stefan Plantikow <stefan.plantikow@googlemail.com>
 -- copyright:
 category:            Data
 build-type:          Simple
