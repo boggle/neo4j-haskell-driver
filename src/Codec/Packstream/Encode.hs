@@ -23,7 +23,7 @@ module Codec.Packstream.Encode(
   fitsTinyInt
 ) where
 
-import           Codec.Packstream.Markers
+import           Codec.Packstream.Marker
 import           Codec.Packstream.Signature
 import           Data.Bits
 import qualified Data.ByteString            as B

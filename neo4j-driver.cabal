@@ -21,7 +21,7 @@ library
   hs-source-dirs:     src
 
   exposed-modules:    Codec.Packstream.Signature
-                    , Codec.Packstream.Markers
+                    , Codec.Packstream.Marker
                     , Codec.Packstream.Encode
                     , Codec.Bolt.Value
 

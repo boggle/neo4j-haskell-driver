@@ -1,4 +1,4 @@
-module Codec.Packstream.Markers where
+module Codec.Packstream.Marker where
 
 import           Data.Word
 

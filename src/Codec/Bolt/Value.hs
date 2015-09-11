@@ -1,10 +1,12 @@
-{-# LANGUAGE IncoherentInstances #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE IncoherentInstances       #-}
 module Codec.Bolt.Value(
   Value,
   valuePackStream,
   ValueEncoder,
   ValueEncodable,
   encodeValue,
+  Val,
   StreamedValue,
   streamed
 )
@@ -22,6 +24,8 @@ type ValueEncoder d = d -> Value
 
 class ValueEncodable d where
   encodeValue :: ValueEncoder d
+
+data Val = forall a. (ValueEncodable a) => Val a
 
 newtype StreamedValue v = MkStreamedValue { streamedValue :: v }
 
@@ -44,6 +48,9 @@ instance ValueEncodable Bool where
 _packValue :: ValueEncodable d => d -> PE.PackStream
 _packValue = valuePackStream . encodeValue
 
+instance ValueEncodable Val where
+  encodeValue (Val v) = encodeValue v
+
 instance ValueEncodable Int8 where encodeValue = MkValue . PE.int8
 instance ValueEncodable Int16 where encodeValue = MkValue . PE.int16
 instance ValueEncodable Int32 where encodeValue = MkValue . PE.int32
@@ -65,25 +72,21 @@ instance ValueEncodable d => ValueEncodable (StreamedValue [d]) where
   encodeValue vs = MkValue . PE.listStream $ map _packValue $ streamedValue vs
 
 instance ValueEncodable v => ValueEncodable (M.Map String v) where
-  encodeValue m = MkValue . PE.map $ (M.foldrWithKey collect [] m)
+  encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] m
     where
-      collect :: ValueEncodable v => String -> v -> [(PE.PackStream, PE.PackStream)] -> [(PE.PackStream, PE.PackStream)]
       collect key val pairs = (_packValue key, _packValue val) : pairs
 
 instance ValueEncodable v => ValueEncodable (StreamedValue (M.Map String v)) where
-  encodeValue m = MkValue . PE.map $ (M.foldrWithKey collect [] $ streamedValue m)
+  encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] $ streamedValue m
     where
-      collect :: ValueEncodable v => String -> v -> [(PE.PackStream, PE.PackStream)] -> [(PE.PackStream, PE.PackStream)]
       collect key val pairs = (_packValue key, _packValue val) : pairs
 
 instance ValueEncodable v => ValueEncodable (M.Map T.Text v) where
-  encodeValue m = MkValue . PE.map $ (M.foldrWithKey collect [] m)
+  encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] m
     where
-      collect :: ValueEncodable v => T.Text -> v -> [(PE.PackStream, PE.PackStream)] -> [(PE.PackStream, PE.PackStream)]
       collect key val pairs = (_packValue key, _packValue val) : pairs
 
 instance ValueEncodable v => ValueEncodable (StreamedValue (M.Map T.Text v)) where
-  encodeValue m = MkValue . PE.map $ (M.foldrWithKey collect [] $ streamedValue m)
+  encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] $ streamedValue m
     where
-      collect :: ValueEncodable v => T.Text -> v -> [(PE.PackStream, PE.PackStream)] -> [(PE.PackStream, PE.PackStream)]
       collect key val pairs = (_packValue key, _packValue val) : pairs
