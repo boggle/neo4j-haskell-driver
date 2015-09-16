@@ -3,4 +3,5 @@ packages:
 - '.'
 extra-deps:
 - cabal-helper-0.5.1.0
+- smallcheck-series-0.5.1
 resolver: lts-3.4
