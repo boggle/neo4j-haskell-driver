@@ -7,7 +7,7 @@ license:             Apache-2.0
 license-file:        LICENSE.txt
 author:              Stefan Plantikow,
 maintainer:          Stefan Plantikow <stefan.plantikow@googlemail.com>
-copyright:           2015 Neo Technology
+copyright:           2015 Stefan Plantikow
 category:            Data
 build-type:          Simple
 cabal-version:       >=1.10
@@ -44,20 +44,24 @@ test-suite neo4j-driver-test
   hs-source-dirs:     test
   main-is:            Test.hs
   other-modules:      Codec.Packstream.Test
+                    , Codec.Bolt.ValueTest
   build-depends:      base
                     , neo4j-driver
                     , tasty              >= 0.10.1
+                    , tasty-rerun        >= 1.1.4
                     , tasty-hspec        >= 1.1.2
                     , tasty-smallcheck   >= 0.8.0.1
                     , smallcheck         >= 1.1.1
                     , smallcheck-series  >= 0.5.1
                     -- , tasty-quickcheck   >= 0.8.3.2
-                    , bytestring         >= 0.10.6
+                    -- , bytestring         >= 0.10.6
                     , binary             >= 0.7.5.0
-                    , text               >= 1.2.1
-  ghc-options:        -threaded -rtsopts -with-rtsopts=-N
+                    -- , text               >= 1.2.1
+
   default-language:   Haskell2010
   default-extensions: NegativeLiterals
+
+  ghc-options:        -threaded -rtsopts -with-rtsopts=-N
 
 source-repository head
   type:     git

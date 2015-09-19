@@ -1,6 +1,8 @@
 module Codec.Bolt.Value(
   BoltValue,
-  BValue
+  BValue(..),
+  pack,
+  unpack
 )
 
 where
@@ -49,6 +51,10 @@ class BoltValue a where
   pack :: a -> BValue
   unpack :: BValue -> Maybe a
 
+instance BoltValue BValue where
+  pack = id
+  unpack = Just
+  
 instance BoltValue a => BoltValue (Maybe a) where
   pack = \case
     Just v  -> pack v
@@ -119,6 +125,28 @@ instance BoltValue Int64 where
       BInt32 i32 -> Just (fromIntegral i32)
       BInt64 i64 -> Just i64
       _          -> Nothing
+
+instance BoltValue Int where
+    pack int
+      | int == fromIntegral i8  = BInt8 i8
+      | int == fromIntegral i16 = BInt16 i16
+      | int == fromIntegral i32 = BInt32 i32
+      | otherwise               = BInt64 i64
+      where
+        i8 = fromIntegral int :: Int8
+        i16 = fromIntegral int :: Int16
+        i32 = fromIntegral int :: Int32
+        i64 = fromIntegral int :: Int64
+    unpack = \case
+      BInt8 i8   -> Just (fromIntegral i8)
+      BInt16 i16 -> Just (fromIntegral i16)
+      BInt32 i32 -> let int = fromIntegral i32 :: Int in
+                    if fromIntegral int == i32 then Just int else Nothing
+      BInt64 i64 -> let int = fromIntegral i64 :: Int in
+                    if fromIntegral int == i64 then Just int else Nothing
+      _          -> Nothing
+
+
 --
 -- newtype Value = MkValue { valuePackStream :: PE.PackStream }
 --
