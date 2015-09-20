@@ -15,16 +15,22 @@ module Codec.Packstream.Value(
   putInt32,
   getInt32,
   putInt64,
-  getInt64
+  getInt64,
+  putVector,
+  getVector,
+  streamList,
+  unStreamList
 ) where
 
 import           Codec.Packstream.Marker
 import           Control.Applicative
+import           Control.Monad
 import qualified Data.Binary.Get         as G
 import qualified Data.Binary.IEEE754     as IEEE754
 import qualified Data.Binary.Put         as P
 import           Data.Bits
 import           Data.Int
+import qualified Data.Vector             as V
 import           Data.Word
 
 putNull :: P.Put
@@ -60,12 +66,16 @@ isTinyInt :: Int8 -> Bool
 isTinyInt i8 = positivelyTiny || negativelyTiny
   where
     positivelyTiny = not $ testBit w8 7
-    negativelyTiny = masks (markerByte _NEG_TINY_INT_FIRST) w8
+    negativelyTiny = markerByte _NEG_TINY_INT_FIRST == hi w8
     w8 = fromIntegral i8
 
-{-# INLINE masks #-}
-masks :: Word8 -> Word8 -> Bool
-masks mask value = mask == mask .&. value
+{-# INLINE hi #-}
+hi :: Word8 -> Word8
+hi value = value .&. 0xf0
+
+{-# INLINE lo #-}
+lo :: Word8 -> Word8
+lo value = value .&. 0x0f
 
 putInt8 :: Int8 -> P.Put
 putInt8 i8 = putMarker _INT_8 *> P.putWord8 (fromIntegral i8)
@@ -91,29 +101,50 @@ putInt64 i64 = putMarker _INT_64 *> P.putWord64be (fromIntegral i64)
 getInt64 :: G.Get Int64
 getInt64 = expectMarker _INT_64 *> (fromIntegral <$> G.getWord64be)
 
+putVector :: V.Vector P.Put -> P.Put
+putVector vec = case V.length vec of
+    numElts | numElts == 0          -> putMarker _TINY_LIST_FIRST
+    numElts | numElts <= 15         -> putTiny _TINY_LIST_FIRST numElts $ \put0 -> V.foldl (*>) put0 vec
+    numElts | numElts <= 255        -> V.foldl (*>) (putMarker _LIST_8 *> P.putWord8 (fromIntegral numElts)) vec
+    numElts | numElts <= 65535      -> V.foldl (*>) (putMarker _LIST_16 *> P.putWord16be (fromIntegral numElts)) vec
+    numElts | numElts <= 2147483647 -> V.foldl (*>) (putMarker _LIST_32 *> P.putWord32be (fromIntegral numElts)) vec
+    _                               -> V.foldl (*>) (putMarker _LIST_STREAM) vec *> putMarker _END_OF_STREAM
+
+getVector :: G.Get a -> G.Get (V.Vector a)
+getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 <|> getVectorStream
+  where
+    getTinyVector = getTiny _TINY_LIST_FIRST $ \times -> V.replicateM times getElt
+    getVector8 = expectMarker _LIST_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getElt
+    getVector16 = expectMarker _LIST_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getElt
+    getVector32 = expectMarker _LIST_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getElt
+    getVectorStream = expectMarker _LIST_STREAM *> getVectorStreamElts getElt
+    getVectorStreamElts get = (Just <$> get <|> Nothing <$ expectMarker _END_OF_STREAM) >>= \case
+      Just v  -> liftM (V.cons v) $ getVectorStreamElts get
+      Nothing -> return V.empty
+
+streamList :: [P.Put] -> P.Put
+streamList elts = foldl (*>) (putMarker _LIST_STREAM) elts *> putMarker _END_OF_STREAM
+
+unStreamList :: G.Get a -> G.Get [a]
+unStreamList getElt = expectMarker _LIST_STREAM *> unStreamElts getElt
+  where
+    unStreamElts get = (Just <$> get <|> Nothing <$ expectMarker _END_OF_STREAM) >>= \case
+      Just elt -> liftM (elt :) $ unStreamElts get
+      Nothing  -> return []
+
+{-# INLINE putTiny #-}
+putTiny :: Marker -> Int -> (P.Put -> P.Put) -> P.Put
+putTiny marker times cont = cont $ P.putWord8 $ markerByte marker .|. fromIntegral times
+
+{-# INLINE getTiny #-}
+getTiny :: Marker -> (Int -> G.Get a) -> G.Get a
+getTiny mask getElt = G.getWord8 >>= \w8 -> if markerByte mask == hi w8 then getElt (fromIntegral . lo $ w8) else empty
+
+
+
 -- encode :: PackStream -> BB.Builder
 -- encode vs0 = step (unPackStream vs0 PEnd)
 --   where
---     step (PNull cont) = mark _NULL cont
---     step (PFloat64 value cont) = wrap _FLOAT_64 cont $ BB.doubleBE value
---     step (PFalse cont) = mark _FALSE cont
---     step (PTrue cont) = mark _TRUE cont
---     step (PTinyInt value cont) | fitsTinyInt value = write cont $ BB.int8 value
---     step (PTinyInt value cont) = wrap _INT_8 cont $ BB.int8 value
---     step (PInt8 value cont) = wrap _INT_8 cont $ BB.int8 value
---     step (PInt64 value cont) = wrap _INT_64 cont $ BB.int64BE value
---     step (PInt32 value cont) = wrap _INT_32 cont $ BB.int32BE value
---     step (PInt64 value cont) = wrap _INT_64 cont $ BB.int64BE value
---     step (PInt value cont) = case value of
---         _ | value64 == fromIntegral value8 -> (if fitsTinyInt value8 then write else wrap _INT_8) cont $ BB.int8 value8
---         _ | value64 == fromIntegral value64 -> wrap _INT_64 cont $ BB.int64BE value64
---         _ | value64 == fromIntegral value32 -> wrap _INT_32 cont $ BB.int32BE value32
---         _ -> wrap _INT_64 cont $ BB.int64BE value64
---         where
---           value64 = fromIntegral value :: Int64
---           value32 = fromIntegral value :: Int32
---           value64 = fromIntegral value :: Int64
---           value8 = fromIntegral value :: Int8
 --     step (PText value cont) = build (B.length encodedBytes) encodedBytes
 --       where
 --         build :: Int -> B.ByteString -> BB.Builder

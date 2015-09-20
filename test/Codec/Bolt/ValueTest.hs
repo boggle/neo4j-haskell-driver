@@ -6,6 +6,7 @@ import           Test.Tasty
 import           Test.Tasty.Hspec
 
 import           Data.Int
+import qualified Data.Vector                as V
 
 import           Codec.Bolt.Value
 import           Codec.Packstream.ShowBytes
@@ -23,6 +24,9 @@ specTests =
         encoding "-16" (-16 :: Int8) (`shouldBe` "F0")
         encoding "-1" (-1 :: Int8) (`shouldBe` "FF")
         encoding "0" (0 :: Int8) (`shouldBe` "00")
+        encoding "1" (1 :: Int8) (`shouldBe` "01")
+        encoding "2" (2 :: Int8) (`shouldBe` "02")
+        encoding "3" (3 :: Int8) (`shouldBe` "03")
         encoding "127" (127 :: Int8) (`shouldBe` "7F")
         encoding "-128" (-128 :: Int8) (`shouldBe` "C8 80")
         encoding "-17" (-17 :: Int8) (`shouldBe` "C8 EF")
@@ -31,6 +35,10 @@ specTests =
         encoding "96000" (96000 :: Int32) (`shouldBe` "CA 00 01 77 00")
         encoding "-9223372036854775808" (-9223372036854775808 :: Int64) (`shouldBe` "CB 80 00 00 00 00 00 00 00")
         encoding "9223372036854775807" (9223372036854775807 :: Int64) (`shouldBe` "CB 7F FF FF FF FF FF FF FF")
+      describe "encoding of lists" $ do
+        encoding "V.fromList []" (V.empty :: V.Vector BValue) (`shouldBe` "90")
+        encoding "V.fromList [1, 2, 3]" (V.fromList [1, 2, 3] :: V.Vector Int8) (`shouldBe` "93 01 02 03")
+        encoding "[1, 2, 3]" ([1, 2, 3] :: [Int8]) (`shouldBe` "D7 01 02 03 DF")
   where
     encoding :: (BoltValue a, Example b) => String -> a -> (String -> b) -> SpecWith (Arg b)
     encoding what value cont = it ("encodes " ++ what) $ cont $ showBytes $ pack value

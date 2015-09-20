@@ -12,6 +12,7 @@ import           Control.Applicative
 import           Data.Binary
 import           Data.Int
 import           Data.Maybe
+import qualified Data.Vector as V
 
 data BValue = BNull
             | BBool                  !Bool
@@ -20,6 +21,8 @@ data BValue = BNull
             | BInt16  {-# UNPACK #-} !Int16
             | BInt32  {-# UNPACK #-} !Int32
             | BInt64  {-# UNPACK #-} !Int64
+            | BVector {-# UNPACK #-} !(V.Vector BValue)
+            | BList                  [BValue]
             deriving (Show)
 
 instance Binary BValue where
@@ -28,13 +31,15 @@ instance Binary BValue where
 
 putValue :: BValue -> Put
 putValue = \case
-  BNull      -> PSV.putNull
-  BBool b    -> PSV.putBool b
-  BDouble d  -> PSV.putFloat64 d
-  BInt8 i8   -> fromMaybe (PSV.putInt8 i8) (PSV.putTinyInt i8)
-  BInt16 i16 -> PSV.putInt16 i16
-  BInt32 i32 -> PSV.putInt32 i32
-  BInt64 i64 -> PSV.putInt64 i64
+  BNull       -> PSV.putNull
+  BBool b     -> PSV.putBool b
+  BDouble d   -> PSV.putFloat64 d
+  BInt8 i8    -> fromMaybe (PSV.putInt8 i8) (PSV.putTinyInt i8)
+  BInt16 i16  -> PSV.putInt16 i16
+  BInt32 i32  -> PSV.putInt32 i32
+  BInt64 i64  -> PSV.putInt64 i64
+  BVector vec -> PSV.putVector $ V.map putValue vec
+  BList lst   -> PSV.streamList $ map putValue lst
 
 getValue :: Get BValue
 getValue =
@@ -46,6 +51,8 @@ getValue =
   <|> BInt16  <$> PSV.getInt16
   <|> BInt32  <$> PSV.getInt32
   <|> BInt64  <$> PSV.getInt64
+  <|> BVector <$> PSV.getVector getValue
+  <|> BList   <$> PSV.unStreamList getValue
 
 class BoltValue a where
   pack :: a -> BValue
@@ -54,7 +61,7 @@ class BoltValue a where
 instance BoltValue BValue where
   pack = id
   unpack = Just
-  
+
 instance BoltValue a => BoltValue (Maybe a) where
   pack = \case
     Just v  -> pack v
@@ -146,7 +153,17 @@ instance BoltValue Int where
                     if fromIntegral int == i64 then Just int else Nothing
       _          -> Nothing
 
+instance BoltValue a => BoltValue (V.Vector a) where
+  pack vec = BVector $ V.map pack vec
+  unpack = \case
+    BVector vec -> mapM unpack vec
+    _           -> Nothing
 
+instance BoltValue a => BoltValue [a] where
+  pack lst = BList $ map pack lst
+  unpack = \case
+    BList lst -> mapM unpack lst
+    _         -> Nothing
 --
 -- newtype Value = MkValue { valuePackStream :: PE.PackStream }
 --

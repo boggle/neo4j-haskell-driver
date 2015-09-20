@@ -1,5 +1,7 @@
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances  #-}
 module Codec.Packstream.Test (
   unitTests
 ) where
@@ -7,6 +9,7 @@ module Codec.Packstream.Test (
 import           Control.Monad
 import qualified Data.Binary.Get                  as G
 import qualified Data.Binary.Put                  as P
+import qualified Data.Vector                      as V
 
 import           Test.SmallCheck.Series
 import           Test.SmallCheck.Series.Instances ()
@@ -27,6 +30,11 @@ newtype Signature = MkSignature { signature :: PSS.Signature } deriving (Eq, Sho
 instance Monad m => Serial m Signature where
   series = liftM (MkSignature . PSS.signature) series
 
+newtype Vec a = MkVec { vector :: V.Vector a } deriving (Eq, Show)
+
+instance Serial m [a] => Serial m (Vec a) where
+  series = fmap (MkVec . V.fromList) series
+
 unitTests :: TestTree
 unitTests =
   testGroup "Codec.Packstream" [
@@ -41,9 +49,17 @@ unitTests =
       SC.testProperty "int16 coding" $ propVerifyCoding PSV.putInt16 PSV.getInt16,
       SC.testProperty "int32 coding" $ propVerifyCoding PSV.putInt32 PSV.getInt32,
       SC.testProperty "int64 coding" $ propVerifyCoding PSV.putInt64 PSV.getInt64
+    ],
+    testGroup "container coding" [
+      SC.testProperty "bool vector coding" $ propVerifyCoding (putEltVec PSV.putBool) (getEltVec PSV.getBool),
+      SC.testProperty "int8 list coding" $ propVerifyCoding (putList PSV.putInt8) (getList PSV.getInt8)
     ]
   ]
   where
+    putList putElt lst = PSV.streamList $ map putElt lst
+    getList = PSV.unStreamList
+    putEltVec putElt vec = PSV.putVector $ V.map putElt $ vector vec
+    getEltVec getElt = liftM MkVec $ PSV.getVector getElt
     putMarker = PSM.putMarker . marker
     getMarker = liftM MkMarker PSM.getMarker
     putSignature = PSS.putSignature . signature
