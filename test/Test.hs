@@ -6,8 +6,8 @@ import           Test.Tasty
 import           Test.Tasty.Ingredients.Rerun
 import           Test.Tasty.Runners
 
-import qualified Codec.Bolt.ValueTest
-import qualified Codec.Packstream.Test
+import qualified Codec.Packstream.AtomTest
+import qualified Codec.Packstream.CodingTest
 
 main :: IO ()
 main = tests >>= defaultMainWithIngredients [ rerunningTests [ listingTests, consoleTestReporter ] ]
@@ -15,10 +15,9 @@ main = tests >>= defaultMainWithIngredients [ rerunningTests [ listingTests, con
 tests :: IO TestTree
 tests =
   let
-    packstreamUnitTests = Codec.Packstream.Test.unitTests
+    packstreamCodingUnitTests = Codec.Packstream.CodingTest.unitTests
   in do
-    boltValueSpecTests <- Codec.Bolt.ValueTest.specTests
+    packstreamAtomUnitTests <- Codec.Packstream.AtomTest.unitTests
     return $ testGroup "all tests" [
-        testGroup "unit tests" [ packstreamUnitTests ],
-        testGroup "bolt specification tests" [ boltValueSpecTests ]
+        testGroup "unit tests" [ packstreamCodingUnitTests, packstreamAtomUnitTests ]
       ]

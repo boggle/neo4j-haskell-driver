@@ -2,9 +2,6 @@ module Codec.Packstream.Marker (
   Marker,
   allMarkers,
   markerByte,
-  putMarker,
-  getMarker,
-  expectMarker,
   -- keep in sync w allMarkers
   _POS_TINY_INT_FIRST,
   _POS_TINY_INT_LAST,
@@ -44,6 +41,7 @@ module Codec.Packstream.Marker (
 ) where
 
 import           Control.Monad
+import           Data.Binary     (Binary, get, put)
 import qualified Data.Binary.Get as G
 import qualified Data.Binary.Put as P
 import           Data.Word
@@ -91,17 +89,11 @@ allMarkers =
     _NEG_TINY_INT_LAST
   ]
 
-{-# INLINE putMarker #-}
-putMarker :: Marker -> P.Put
-putMarker = P.putWord8 . markerByte
-
-{-# INLINE getMarker #-}
-getMarker :: G.Get Marker
-getMarker = liftM MkMarker G.getWord8
-
-{-# INLINE expectMarker #-}
-expectMarker :: Marker -> G.Get ()
-expectMarker expected = getMarker >>= \actual -> guard (expected == actual)
+instance Binary Marker where
+  {-# INLINE put #-}
+  put = P.putWord8 . markerByte
+  {-# INLINE get #-}
+  get = liftM MkMarker G.getWord8
 
 _POS_TINY_INT_FIRST :: Marker
 _POS_TINY_INT_FIRST = MkMarker 0x00

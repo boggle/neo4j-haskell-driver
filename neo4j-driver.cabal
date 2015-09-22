@@ -21,10 +21,12 @@ library
   hs-source-dirs:     src
 
   exposed-modules:    Codec.Packstream.ShowBytes
+                    , Codec.Packstream.Expect
                     , Codec.Packstream.Marker
                     , Codec.Packstream.Signature
-                    , Codec.Packstream.Value
-                    , Codec.Bolt.Value
+                    , Codec.Packstream.Coding
+                    , Codec.Packstream.Atom
+                    , Codec.Bolt.PTSValue
 
   build-depends:      base                >= 4.7 && < 5
                     , bytestring          >= 0.10.6
@@ -44,8 +46,8 @@ test-suite neo4j-driver-test
   type:               exitcode-stdio-1.0
   hs-source-dirs:     test
   main-is:            Test.hs
-  other-modules:      Codec.Packstream.Test
-                    , Codec.Bolt.ValueTest
+  other-modules:      Codec.Packstream.CodingTest
+                    , Codec.Packstream.AtomTest
   build-depends:      base
                     , neo4j-driver
                     , tasty              >= 0.10.1

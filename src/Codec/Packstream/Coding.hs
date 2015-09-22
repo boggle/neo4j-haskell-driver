@@ -1,4 +1,4 @@
-module Codec.Packstream.Value(
+module Codec.Packstream.Coding(
   putNull,
   getNull,
   putBool,
@@ -22,9 +22,11 @@ module Codec.Packstream.Value(
   unStreamList
 ) where
 
+import           Codec.Packstream.Expect
 import           Codec.Packstream.Marker
 import           Control.Applicative
 import           Control.Monad
+import           Data.Binary             (put)
 import qualified Data.Binary.Get         as G
 import qualified Data.Binary.IEEE754     as IEEE754
 import qualified Data.Binary.Put         as P
@@ -34,24 +36,24 @@ import qualified Data.Vector             as V
 import           Data.Word
 
 putNull :: P.Put
-putNull = putMarker _NULL
+putNull = put _NULL
 
 getNull :: G.Get ()
-getNull = expectMarker _NULL
+getNull = expect _NULL
 
 putBool :: Bool -> P.Put
-putBool b = putMarker marker where marker = if b then _TRUE else _FALSE
+putBool b = put marker where marker = if b then _TRUE else _FALSE
 
 getBool :: G.Get Bool
 getBool =
-  False <$ expectMarker _FALSE <|>
-  True  <$ expectMarker _TRUE
+  False <$ expect _FALSE <|>
+  True  <$ expect _TRUE
 
 putFloat64 :: Double -> P.Put
-putFloat64 d = putMarker _FLOAT_64 *> IEEE754.putFloat64be d
+putFloat64 d = put _FLOAT_64 *> IEEE754.putFloat64be d
 
 getFloat64 :: G.Get Double
-getFloat64 = expectMarker _FLOAT_64 *> IEEE754.getFloat64be
+getFloat64 = expect _FLOAT_64 *> IEEE754.getFloat64be
 
 putTinyInt :: Int8 -> Maybe P.Put
 putTinyInt i8
@@ -78,57 +80,57 @@ lo :: Word8 -> Word8
 lo value = value .&. 0x0f
 
 putInt8 :: Int8 -> P.Put
-putInt8 i8 = putMarker _INT_8 *> P.putWord8 (fromIntegral i8)
+putInt8 i8 = put _INT_8 *> P.putWord8 (fromIntegral i8)
 
 getInt8 :: G.Get Int8
-getInt8 = expectMarker _INT_8 *> (fromIntegral <$> G.getWord8)
+getInt8 = expect _INT_8 *> (fromIntegral <$> G.getWord8)
 
 putInt16 :: Int16 -> P.Put
-putInt16 i16 = putMarker _INT_16 *> P.putWord16be (fromIntegral i16)
+putInt16 i16 = put _INT_16 *> P.putWord16be (fromIntegral i16)
 
 getInt16 :: G.Get Int16
-getInt16 = expectMarker _INT_16 *> (fromIntegral <$> G.getWord16be)
+getInt16 = expect _INT_16 *> (fromIntegral <$> G.getWord16be)
 
 putInt32 :: Int32 -> P.Put
-putInt32 i32 = putMarker _INT_32 *> P.putWord32be (fromIntegral i32)
+putInt32 i32 = put _INT_32 *> P.putWord32be (fromIntegral i32)
 
 getInt32 :: G.Get Int32
-getInt32 = expectMarker _INT_32 *> (fromIntegral <$> G.getWord32be)
+getInt32 = expect _INT_32 *> (fromIntegral <$> G.getWord32be)
 
 putInt64 :: Int64 -> P.Put
-putInt64 i64 = putMarker _INT_64 *> P.putWord64be (fromIntegral i64)
+putInt64 i64 = put _INT_64 *> P.putWord64be (fromIntegral i64)
 
 getInt64 :: G.Get Int64
-getInt64 = expectMarker _INT_64 *> (fromIntegral <$> G.getWord64be)
+getInt64 = expect _INT_64 *> (fromIntegral <$> G.getWord64be)
 
 putVector :: V.Vector P.Put -> P.Put
 putVector vec = case V.length vec of
-    numElts | numElts == 0          -> putMarker _TINY_LIST_FIRST
+    numElts | numElts == 0          -> put _TINY_LIST_FIRST
     numElts | numElts <= 15         -> putTiny _TINY_LIST_FIRST numElts $ \put0 -> V.foldl (*>) put0 vec
-    numElts | numElts <= 255        -> V.foldl (*>) (putMarker _LIST_8 *> P.putWord8 (fromIntegral numElts)) vec
-    numElts | numElts <= 65535      -> V.foldl (*>) (putMarker _LIST_16 *> P.putWord16be (fromIntegral numElts)) vec
-    numElts | numElts <= 2147483647 -> V.foldl (*>) (putMarker _LIST_32 *> P.putWord32be (fromIntegral numElts)) vec
-    _                               -> V.foldl (*>) (putMarker _LIST_STREAM) vec *> putMarker _END_OF_STREAM
+    numElts | numElts <= 255        -> V.foldl (*>) (put _LIST_8 *> P.putWord8 (fromIntegral numElts)) vec
+    numElts | numElts <= 65535      -> V.foldl (*>) (put _LIST_16 *> P.putWord16be (fromIntegral numElts)) vec
+    numElts | numElts <= 2147483647 -> V.foldl (*>) (put _LIST_32 *> P.putWord32be (fromIntegral numElts)) vec
+    _                               -> V.foldl (*>) (put _LIST_STREAM) vec *> put _END_OF_STREAM
 
 getVector :: G.Get a -> G.Get (V.Vector a)
 getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 <|> getVectorStream
   where
     getTinyVector = getTiny _TINY_LIST_FIRST $ \times -> V.replicateM times getElt
-    getVector8 = expectMarker _LIST_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getElt
-    getVector16 = expectMarker _LIST_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getElt
-    getVector32 = expectMarker _LIST_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getElt
-    getVectorStream = expectMarker _LIST_STREAM *> getVectorStreamElts getElt
-    getVectorStreamElts get = (Just <$> get <|> Nothing <$ expectMarker _END_OF_STREAM) >>= \case
+    getVector8 = expect _LIST_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getElt
+    getVector16 = expect _LIST_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getElt
+    getVector32 = expect _LIST_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getElt
+    getVectorStream = expect _LIST_STREAM *> getVectorStreamElts getElt
+    getVectorStreamElts get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
       Just v  -> liftM (V.cons v) $ getVectorStreamElts get
       Nothing -> return V.empty
 
 streamList :: [P.Put] -> P.Put
-streamList elts = foldl (*>) (putMarker _LIST_STREAM) elts *> putMarker _END_OF_STREAM
+streamList elts = foldl (*>) (put _LIST_STREAM) elts *> put _END_OF_STREAM
 
 unStreamList :: G.Get a -> G.Get [a]
-unStreamList getElt = expectMarker _LIST_STREAM *> unStreamElts getElt
+unStreamList getElt = expect _LIST_STREAM *> unStreamElts getElt
   where
-    unStreamElts get = (Just <$> get <|> Nothing <$ expectMarker _END_OF_STREAM) >>= \case
+    unStreamElts get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
       Just elt -> liftM (elt :) $ unStreamElts get
       Nothing  -> return []
 
@@ -139,8 +141,6 @@ putTiny marker times cont = cont $ P.putWord8 $ markerByte marker .|. fromIntegr
 {-# INLINE getTiny #-}
 getTiny :: Marker -> (Int -> G.Get a) -> G.Get a
 getTiny mask getElt = G.getWord8 >>= \w8 -> if markerByte mask == hi w8 then getElt (fromIntegral . lo $ w8) else empty
-
-
 
 -- encode :: PackStream -> BB.Builder
 -- encode vs0 = step (unPackStream vs0 PEnd)

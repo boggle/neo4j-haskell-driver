@@ -1,55 +1,53 @@
-module Codec.Bolt.ValueTest (
-  specTests
+module Codec.Packstream.AtomTest (
+  unitTests
 ) where
 
 import           Test.Tasty
 import           Test.Tasty.Hspec
 
+import           Data.Binary
 import           Data.Int
 import qualified Data.Vector                as V
 
-import           Codec.Bolt.Value
+import           Codec.Packstream.Atom
 import           Codec.Packstream.ShowBytes
 
-specTests :: IO TestTree
-specTests =
-  testSpec "Codec.Bolt.Value" $ do
+unitTests :: IO TestTree
+unitTests =
+  testSpec "Codec.Packstream.Atom" $ do
       describe "encoding of fixed size values" $ do
-        encoding "null" (Nothing :: Maybe Bool) (`shouldBe` "C0")
-        encoding "false" False (`shouldBe` "C2")
-        encoding "true" True (`shouldBe` "C3")
+        encoding "null" PSNull (`shouldBe` "C0")
+        encoding "false" (PSBool False) (`shouldBe` "C2")
+        encoding "true" (PSBool True) (`shouldBe` "C3")
       describe "encoding of numbers" $ do
-        encoding "double" (1.1 :: Double) (`shouldBe` "C1 3F F1 99 99 99 99 99 9A")
-        encoding "double" (-1.1 :: Double) (`shouldBe` "C1 BF F1 99 99 99 99 99 9A")
-        encoding "-16" (-16 :: Int8) (`shouldBe` "F0")
-        encoding "-1" (-1 :: Int8) (`shouldBe` "FF")
-        encoding "0" (0 :: Int8) (`shouldBe` "00")
-        encoding "1" (1 :: Int8) (`shouldBe` "01")
-        encoding "2" (2 :: Int8) (`shouldBe` "02")
-        encoding "3" (3 :: Int8) (`shouldBe` "03")
-        encoding "127" (127 :: Int8) (`shouldBe` "7F")
-        encoding "-128" (-128 :: Int8) (`shouldBe` "C8 80")
-        encoding "-17" (-17 :: Int8) (`shouldBe` "C8 EF")
-        encoding "-128" (-128 :: Int8) (`shouldBe` "C8 80")
-        encoding "32000" (32000 :: Int16) (`shouldBe` "C9 7D 00")
-        encoding "96000" (96000 :: Int32) (`shouldBe` "CA 00 01 77 00")
-        encoding "-9223372036854775808" (-9223372036854775808 :: Int64) (`shouldBe` "CB 80 00 00 00 00 00 00 00")
-        encoding "9223372036854775807" (9223372036854775807 :: Int64) (`shouldBe` "CB 7F FF FF FF FF FF FF FF")
+        encoding "double" (PSDouble 1.1) (`shouldBe` "C1 3F F1 99 99 99 99 99 9A")
+        encoding "double" (PSDouble -1.1 ) (`shouldBe` "C1 BF F1 99 99 99 99 99 9A")
+        encoding "-16" (PSInt8 -16) (`shouldBe` "F0")
+        encoding "-1" (PSInt8 -1) (`shouldBe` "FF")
+        encoding "0" (PSInt8 0) (`shouldBe` "00")
+        encoding "1" (PSInt8 1) (`shouldBe` "01")
+        encoding "2" (PSInt8 2) (`shouldBe` "02")
+        encoding "3" (PSInt8 3) (`shouldBe` "03")
+        encoding "127" (PSInt8 127) (`shouldBe` "7F")
+        encoding "-128" (PSInt8 -128) (`shouldBe` "C8 80")
+        encoding "-17" (PSInt8 -17) (`shouldBe` "C8 EF")
+        encoding "-128" (PSInt8 -128) (`shouldBe` "C8 80")
+        encoding "32000" (PSInt16 32000) (`shouldBe` "C9 7D 00")
+        encoding "96000" (PSInt32 96000) (`shouldBe` "CA 00 01 77 00")
+        encoding "-9223372036854775808" (PSInt64 -9223372036854775808) (`shouldBe` "CB 80 00 00 00 00 00 00 00")
+        encoding "9223372036854775807" (PSInt64 9223372036854775807) (`shouldBe` "CB 7F FF FF FF FF FF FF FF")
       describe "encoding of lists" $ do
-        encoding "V.fromList []" (V.empty :: V.Vector BValue) (`shouldBe` "90")
-        encoding "V.fromList [1, 2, 3]" (V.fromList [1, 2, 3] :: V.Vector Int8) (`shouldBe` "93 01 02 03")
-        encoding "[1, 2, 3]" ([1, 2, 3] :: [Int8]) (`shouldBe` "D7 01 02 03 DF")
+        encoding "V.fromList []" (PSVector V.empty) (`shouldBe` "90")
+        encoding "V.fromList [1, 2, 3]" (PSVector $ V.fromList [PSInt8 1, PSInt8 2, PSInt8 3]) (`shouldBe` "93 01 02 03")
+        encoding "[1, 2, 3]" (PSList [PSInt8 1, PSInt8 2, PSInt8 3]) (`shouldBe` "D7 01 02 03 DF")
   where
-    encoding :: (BoltValue a, Example b) => String -> a -> (String -> b) -> SpecWith (Arg b)
-    encoding what value cont = it ("encodes " ++ what) $ cont $ showBytes $ pack value
+    encoding :: Example b => String -> Atom -> (String -> b) -> SpecWith (Arg b)
+    encoding what value cont = it ("encodes " ++ what) $ cont $ showBytes value
 
   --     describe "encoding of text" $ do
   --       it "encodes ''" $ show (E.string "") `shouldBe` "80"
   --       it "encodes 'hallo'" $ show (E.string "hallo") `shouldBe` "85 68 61 6C 6C 6F"
   --       it "encodes 'abcdefghijklmonpqrstuvwxyz'" $ show (E.string "abcdefghijklmonpqrstuvwxyz") `shouldBe` "D0 1A 61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6F 6E 70 71 72 73 74 75 76 77 78 79 7A"
-  --     describe "encoding of lists" $ do
-  --       it "encodes []" $ show (E.list []) `shouldBe` "90"
-  --       it "encodes [1, 2, 3]" $ show (E.list [E.tinyInt 1, E.tinyInt 2, E.tinyInt 3]) `shouldBe` "93 01 02 03"
   --     describe "encoding of structs" $ do
   --       it "encodes Struct (signature=0x01) { 1, 2, 3 }" $ show (E.structure (signature 1) [E.tinyInt 1, E.tinyInt 2, E.tinyInt 3]) `shouldBe` "B3 01 01 02 03"
   --       it "encodes Struct (signature=0x01) { 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6 }" $ show longStruct `shouldBe` "DC 10 01 01 02 03 04 05 06 07 08 09 00 01 02 03 04 05 06"
