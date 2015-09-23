@@ -7,6 +7,7 @@ import           Control.Applicative
 import           Data.Binary             (Binary, get, put)
 import           Data.Int
 import           Data.Maybe
+import qualified Data.Text as T
 import qualified Data.Vector as V
 
 data Atom = ANull
@@ -16,6 +17,7 @@ data Atom = ANull
           | AInt16  {-# UNPACK #-} !Int16
           | AInt32  {-# UNPACK #-} !Int32
           | AInt64  {-# UNPACK #-} !Int64
+          | AText   {-# UNPACK #-} !T.Text
           | AVector {-# UNPACK #-} !(V.Vector Atom)
           | AList                  [Atom]
           deriving (Show, Eq)
@@ -29,6 +31,7 @@ instance Binary Atom where
     AInt16 i16  -> Coding.putInt16 i16
     AInt32 i32  -> Coding.putInt32 i32
     AInt64 i64  -> Coding.putInt64 i64
+    AText txt   -> Coding.putText txt
     AVector vec -> Coding.putVector $ V.map put vec
     AList lst   -> Coding.streamList $ map put lst
   get =
@@ -40,5 +43,6 @@ instance Binary Atom where
     <|> AInt16  <$> Coding.getInt16
     <|> AInt32  <$> Coding.getInt32
     <|> AInt64  <$> Coding.getInt64
+    <|> AText   <$> Coding.getText
     <|> AVector <$> Coding.getVector get
     <|> AList   <$> Coding.unStreamList get

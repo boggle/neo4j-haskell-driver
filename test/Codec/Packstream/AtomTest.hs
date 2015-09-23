@@ -7,6 +7,7 @@ import           Test.Tasty.Hspec
 
 import           Data.Binary
 import           Data.Int
+import           Data.Text                  (pack)
 import qualified Data.Vector                as V
 
 import           Codec.Packstream.Atom
@@ -36,6 +37,10 @@ unitTests =
         encoding "96000" (AInt32 96000) (`shouldBe` "CA 00 01 77 00")
         encoding "-9223372036854775808" (AInt64 -9223372036854775808) (`shouldBe` "CB 80 00 00 00 00 00 00 00")
         encoding "9223372036854775807" (AInt64 9223372036854775807) (`shouldBe` "CB 7F FF FF FF FF FF FF FF")
+      describe "encoding of text" $ do
+        encoding "''" (AText $ pack "") (`shouldBe` "80")
+        encoding "'hallo'" (AText $ pack "hallo") (`shouldBe` "85 68 61 6C 6C 6F")
+        encoding "'abcdefghijklmonpqrstuvwxyz'" (AText $ pack "abcdefghijklmonpqrstuvwxyz") (`shouldBe` "D0 1A 61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6F 6E 70 71 72 73 74 75 76 77 78 79 7A")
       describe "encoding of lists" $ do
         encoding "V.fromList []" (AVector V.empty) (`shouldBe` "90")
         encoding "V.fromList [1, 2, 3]" (AVector $ V.fromList [AInt8 1, AInt8 2, AInt8 3]) (`shouldBe` "93 01 02 03")

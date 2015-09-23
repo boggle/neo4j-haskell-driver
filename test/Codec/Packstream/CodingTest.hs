@@ -44,6 +44,7 @@ unitTests =
     SC.testProperty "null coding" $ propVerifyCoding (const PSC.putNull) PSC.getNull,
     SC.testProperty "bool coding" $ propVerifyCoding PSC.putBool PSC.getBool,
     SC.testProperty "float64 coding" $ propVerifyCoding PSC.putFloat64 PSC.getFloat64,
+    SC.testProperty "text coding" $ propVerifyCoding PSC.putText PSC.getText,
     testGroup "int coding" [
       SC.testProperty "tinyInt coding" $ propVerifyMaybeCoding PSC.putTinyInt PSC.getTinyInt,
       SC.testProperty "int8 coding" $ SC.changeDepth (const 255) $ propVerifyCoding PSC.putInt8 PSC.getInt8,

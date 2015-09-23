@@ -14,12 +14,14 @@ import           Codec.Packstream.Atom
 import           Control.Applicative
 import           Data.Binary
 import           Data.Int
+import qualified Data.Text             as T
 import qualified Data.Vector           as V
 
 data Value  = NULL
             | BOOL                   !Bool
             | FLOAT   {-# UNPACK #-} !Double
             | INTEGER {-# UNPACK #-} !Int64
+            | TEXT    {-# UNPACK #-} !T.Text
             | LIST    {-# UNPACK #-} !(V.Vector Value)
             deriving (Show, Eq)
 
@@ -58,16 +60,18 @@ toAtom (INTEGER v) = case v of
           v8 = fromIntegral v :: Int8
           v16 = fromIntegral v :: Int16
           v32 = fromIntegral v :: Int32
-toAtom (LIST vs)   = AVector$ V.map toAtom vs
+toAtom (TEXT txt)  = AText txt
+toAtom (LIST vs)   = AVector $ V.map toAtom vs
 
 fromAtom :: Atom -> Value
 fromAtom ANull        = NULL
 fromAtom (ABool b)    = BOOL b
 fromAtom (ADouble v)  = FLOAT v
-fromAtom (AInt64 v)   = INTEGER v
-fromAtom (AInt32 v)   = INTEGER $ fromIntegral v
-fromAtom (AInt16 v)   = INTEGER $ fromIntegral v
 fromAtom (AInt8 v)    = INTEGER $ fromIntegral v
+fromAtom (AInt16 v)   = INTEGER $ fromIntegral v
+fromAtom (AInt32 v)   = INTEGER $ fromIntegral v
+fromAtom (AInt64 v)   = INTEGER v
+fromAtom (AText txt)  = TEXT txt
 fromAtom (AVector vs) = LIST $ V.map fromAtom vs
 fromAtom (AList vs)   = LIST $ V.fromList $ map fromAtom vs
 
@@ -133,6 +137,14 @@ instance Codec Int64 where
   toValue = INTEGER
   fromValue (INTEGER v) = Just v
   fromValue _ = Nothing
+
+instance Codec T.Text where
+  toValue = TEXT
+  fromValue (TEXT txt) = Just txt
+  fromValue _ = Nothing
+  encodeValue txt = Encode $ AText txt
+  decodeValue (Encode (AText txt)) = Just txt
+  decodeValue _ = Nothing
 
 instance Codec Int where
   toValue = INTEGER . fromIntegral
