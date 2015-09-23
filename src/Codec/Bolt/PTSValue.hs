@@ -46,35 +46,35 @@ instance PTSCodec PTSValue where
   ptsDecode = Just . fromAtom . atom
 
 toAtom :: PTSValue -> Atom
-toAtom PTSNull        = PSNull
-toAtom (PTSBool b)    = PSBool b
-toAtom (PTSFloat v)   = PSDouble v
+toAtom PTSNull        = ANull
+toAtom (PTSBool b)    = ABool b
+toAtom (PTSFloat v)   = ADouble v
 toAtom (PTSInteger v) = case v of
-        _ | v == fromIntegral v8  -> PSInt8 v8
-        _ | v == fromIntegral v16 -> PSInt16 v16
-        _ | v == fromIntegral v32 -> PSInt32 v32
-        _                         -> PSInt64 v
+        _ | v == fromIntegral v8  -> AInt8 v8
+        _ | v == fromIntegral v16 -> AInt16 v16
+        _ | v == fromIntegral v32 -> AInt32 v32
+        _                         -> AInt64 v
         where
           v8 = fromIntegral v :: Int8
           v16 = fromIntegral v :: Int16
           v32 = fromIntegral v :: Int32
-toAtom (PTSList vs)   = PSVector$ V.map toAtom vs
+toAtom (PTSList vs)   = AVector$ V.map toAtom vs
 
 fromAtom :: Atom -> PTSValue
-fromAtom PSNull        = PTSNull
-fromAtom (PSBool b)    = PTSBool b
-fromAtom (PSDouble v)  = PTSFloat v
-fromAtom (PSInt64 v)   = PTSInteger v
-fromAtom (PSInt32 v)   = PTSInteger $ fromIntegral v
-fromAtom (PSInt16 v)   = PTSInteger $ fromIntegral v
-fromAtom (PSInt8 v)    = PTSInteger $ fromIntegral v
-fromAtom (PSVector vs) = PTSList $ V.map fromAtom vs
-fromAtom (PSList vs)   = PTSList $ V.fromList $ map fromAtom vs
+fromAtom ANull        = PTSNull
+fromAtom (ABool b)    = PTSBool b
+fromAtom (ADouble v)  = PTSFloat v
+fromAtom (AInt64 v)   = PTSInteger v
+fromAtom (AInt32 v)   = PTSInteger $ fromIntegral v
+fromAtom (AInt16 v)   = PTSInteger $ fromIntegral v
+fromAtom (AInt8 v)    = PTSInteger $ fromIntegral v
+fromAtom (AVector vs) = PTSList $ V.map fromAtom vs
+fromAtom (AList vs)   = PTSList $ V.fromList $ map fromAtom vs
 
 instance PTSCodec () where
   toPTSValue _ = PTSNull
   fromPTSValue _ = Just ()
-  ptsEncode _ = MkPTSBinary PSNull
+  ptsEncode _ = MkPTSBinary ANull
   ptsDecode _ = Just ()
 
 instance PTSCodec a => PTSCodec (Maybe a) where
@@ -83,8 +83,8 @@ instance PTSCodec a => PTSCodec (Maybe a) where
   fromPTSValue PTSNull = Nothing
   fromPTSValue v = Just $ fromPTSValue v
   ptsEncode (Just v) = ptsEncode v
-  ptsEncode _ = MkPTSBinary PSNull
-  ptsDecode (MkPTSBinary PSNull) = Nothing
+  ptsEncode _ = MkPTSBinary ANull
+  ptsDecode (MkPTSBinary ANull) = Nothing
   ptsDecode (MkPTSBinary v) = Just $ fromPTSValue $ fromAtom v
 
 instance (PTSCodec a, PTSCodec b) => PTSCodec (Either a b) where
@@ -95,16 +95,16 @@ instance PTSCodec Bool where
   toPTSValue = PTSBool
   fromPTSValue (PTSBool b) = Just b
   fromPTSValue _ = Nothing
-  ptsEncode b = MkPTSBinary $ PSBool b
-  ptsDecode (MkPTSBinary (PSBool b)) = Just b
+  ptsEncode b = MkPTSBinary $ ABool b
+  ptsDecode (MkPTSBinary (ABool b)) = Just b
   ptsDecode _ = Nothing
 
 instance PTSCodec Double where
   toPTSValue = PTSFloat
   fromPTSValue (PTSFloat v) = Just v
   fromPTSValue _ = Nothing
-  ptsEncode v = MkPTSBinary $ PSDouble v
-  ptsDecode (MkPTSBinary (PSDouble v)) = Just v
+  ptsEncode v = MkPTSBinary $ ADouble v
+  ptsDecode (MkPTSBinary (ADouble v)) = Just v
   ptsDecode _ = Nothing
 
 instance PTSCodec Int8 where
@@ -144,21 +144,21 @@ instance PTSCodec a => PTSCodec (V.Vector a) where
   toPTSValue vs = PTSList $ V.map toPTSValue vs
   fromPTSValue (PTSList vs) = V.mapM fromPTSValue vs
   fromPTSValue _ = Nothing
-  ptsEncode vs = MkPTSBinary $ PSVector $ V.map (atom . ptsEncode) vs
-  ptsDecode (MkPTSBinary (PSList vs)) = mapM (ptsDecode . MkPTSBinary) $ V.fromList vs
-  ptsDecode (MkPTSBinary (PSVector vs)) = mapM (ptsDecode . MkPTSBinary) vs
+  ptsEncode vs = MkPTSBinary $ AVector $ V.map (atom . ptsEncode) vs
+  ptsDecode (MkPTSBinary (AList vs)) = mapM (ptsDecode . MkPTSBinary) $ V.fromList vs
+  ptsDecode (MkPTSBinary (AVector vs)) = mapM (ptsDecode . MkPTSBinary) vs
   ptsDecode _ = Nothing
 
 instance PTSCodec a => PTSCodec [a] where
   toPTSValue vs = PTSList $ V.fromList $ map toPTSValue vs
   fromPTSValue (PTSList vs) = mapM fromPTSValue $ V.toList vs
   fromPTSValue _ = Nothing
-  ptsEncode vs = MkPTSBinary $ PSList $ map (atom . ptsEncode) vs
-  ptsDecode (MkPTSBinary (PSList vs)) = mapM (ptsDecode . MkPTSBinary) vs
-  ptsDecode (MkPTSBinary (PSVector vs)) = mapM (ptsDecode . MkPTSBinary) $ V.toList vs
+  ptsEncode vs = MkPTSBinary $ AList $ map (atom . ptsEncode) vs
+  ptsDecode (MkPTSBinary (AList vs)) = mapM (ptsDecode . MkPTSBinary) vs
+  ptsDecode (MkPTSBinary (AVector vs)) = mapM (ptsDecode . MkPTSBinary) $ V.toList vs
   ptsDecode _ = Nothing
 
-  -- ptsEncode vs = MkPTSBinary $ PSVector $ V.map (atom . ptsEncode) vs
+  -- ptsEncode vs = MkPTSBinary $ AVector $ V.map (atom . ptsEncode) vs
 
 --
 -- instance ValueEncodable d => StreamableValue (M.Map String d) where
