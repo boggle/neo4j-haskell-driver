@@ -35,31 +35,39 @@ import           Data.Int
 import qualified Data.Vector             as V
 import           Data.Word
 
+{-# INLINE putNull #-}
 putNull :: P.Put
 putNull = put _NULL
 
+{-# INLINE getNull #-}
 getNull :: G.Get ()
 getNull = expect _NULL
 
+{-# INLINE putBool #-}
 putBool :: Bool -> P.Put
 putBool b = put marker where marker = if b then _TRUE else _FALSE
 
+{-# INLINE getBool #-}
 getBool :: G.Get Bool
 getBool =
   False <$ expect _FALSE <|>
   True  <$ expect _TRUE
 
+{-# INLINE putFloat64 #-}
 putFloat64 :: Double -> P.Put
 putFloat64 d = put _FLOAT_64 *> IEEE754.putFloat64be d
 
+{-# INLINE getFloat64 #-}
 getFloat64 :: G.Get Double
 getFloat64 = expect _FLOAT_64 *> IEEE754.getFloat64be
 
+{-# INLINE putTinyInt #-}
 putTinyInt :: Int8 -> Maybe P.Put
 putTinyInt i8
   | isTinyInt i8 = Just . P.putWord8 . fromIntegral $ i8
   | otherwise    = Nothing
 
+{-# INLINE getTinyInt #-}
 getTinyInt :: G.Get Int8
 getTinyInt = (fromIntegral <$> G.getWord8) >>= \i8 -> if isTinyInt i8 then return i8 else empty
 
@@ -79,30 +87,39 @@ hi value = value .&. 0xf0
 lo :: Word8 -> Word8
 lo value = value .&. 0x0f
 
+{-# INLINE putInt8 #-}
 putInt8 :: Int8 -> P.Put
 putInt8 i8 = put _INT_8 *> P.putWord8 (fromIntegral i8)
 
+{-# INLINE getInt8 #-}
 getInt8 :: G.Get Int8
 getInt8 = expect _INT_8 *> (fromIntegral <$> G.getWord8)
 
+{-# INLINE putInt16 #-}
 putInt16 :: Int16 -> P.Put
 putInt16 i16 = put _INT_16 *> P.putWord16be (fromIntegral i16)
 
+{-# INLINE getInt16 #-}
 getInt16 :: G.Get Int16
 getInt16 = expect _INT_16 *> (fromIntegral <$> G.getWord16be)
 
+{-# INLINE putInt32 #-}
 putInt32 :: Int32 -> P.Put
 putInt32 i32 = put _INT_32 *> P.putWord32be (fromIntegral i32)
 
+{-# INLINE getInt32 #-}
 getInt32 :: G.Get Int32
 getInt32 = expect _INT_32 *> (fromIntegral <$> G.getWord32be)
 
+{-# INLINE putInt64 #-}
 putInt64 :: Int64 -> P.Put
 putInt64 i64 = put _INT_64 *> P.putWord64be (fromIntegral i64)
 
+{-# INLINE getInt64 #-}
 getInt64 :: G.Get Int64
 getInt64 = expect _INT_64 *> (fromIntegral <$> G.getWord64be)
 
+{-# INLINE putVector #-}
 putVector :: V.Vector P.Put -> P.Put
 putVector vec = case V.length vec of
     numElts | numElts == 0          -> put _TINY_LIST_FIRST
@@ -112,6 +129,7 @@ putVector vec = case V.length vec of
     numElts | numElts <= 2147483647 -> V.foldl (*>) (put _LIST_32 *> P.putWord32be (fromIntegral numElts)) vec
     _                               -> V.foldl (*>) (put _LIST_STREAM) vec *> put _END_OF_STREAM
 
+{-# INLINE getVector #-}
 getVector :: G.Get a -> G.Get (V.Vector a)
 getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 <|> getVectorStream
   where
@@ -124,9 +142,11 @@ getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 
       Just v  -> liftM (V.cons v) $ getVectorStreamElts get
       Nothing -> return V.empty
 
+{-# INLINE streamList #-}
 streamList :: [P.Put] -> P.Put
 streamList elts = foldl (*>) (put _LIST_STREAM) elts *> put _END_OF_STREAM
 
+{-# INLINE unStreamList #-}
 unStreamList :: G.Get a -> G.Get [a]
 unStreamList getElt = expect _LIST_STREAM *> unStreamElts getElt
   where

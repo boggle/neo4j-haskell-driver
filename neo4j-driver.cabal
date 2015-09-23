@@ -26,7 +26,7 @@ library
                     , Codec.Packstream.Signature
                     , Codec.Packstream.Coding
                     , Codec.Packstream.Atom
-                    , Codec.Bolt.PTSValue
+                    , Codec.Bolt.PTS
 
   build-depends:      base                >= 4.7 && < 5
                     , bytestring          >= 0.10.6
