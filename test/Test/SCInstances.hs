@@ -5,6 +5,7 @@
 module Test.SCInstances where
 
 import           Control.Monad
+import qualified Data.Text                        as T
 import qualified Data.Vector                      as V
 
 import           Test.SmallCheck.Series
@@ -22,6 +23,11 @@ newtype Signature = MkSignature { signature :: PSS.Signature } deriving (Eq, Sho
 
 instance Monad m => Serial m Signature where
   series = liftM (MkSignature . PSS.signature) series
+
+newtype Entry a = MkEntry { unEntry :: (T.Text, a) } deriving (Eq, Show)
+
+instance Serial m a => Serial m (Entry a) where
+  series = cons2 p where p a b = MkEntry (a, b)
 
 newtype Vec a = MkVec { vector :: V.Vector a } deriving (Eq, Show)
 

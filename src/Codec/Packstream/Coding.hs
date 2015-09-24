@@ -21,7 +21,13 @@ module Codec.Packstream.Coding(
   putVector,
   getVector,
   streamList,
-  unStreamList
+  unStreamList,
+  putEntry,
+  getEntry,
+  putMap,
+  getMap,
+  streamMap,
+  unStreamMap
 ) where
 
 import           Codec.Packstream.Expect
@@ -124,6 +130,7 @@ putInt64 i64 = put _INT_64 *> P.putWord64be (fromIntegral i64)
 getInt64 :: G.Get Int64
 getInt64 = expect _INT_64 *> (fromIntegral <$> G.getWord64be)
 
+{-# INLINEABLE putText #-}
 putText :: T.Text -> P.Put
 putText txt | T.null txt =  put _TINY_TEXT_FIRST
 putText txt = case B.length bytes of
@@ -135,6 +142,7 @@ putText txt = case B.length bytes of
   where
     bytes = encodeUtf8 txt
 
+{-# INLINEABLE getText #-}
 getText :: G.Get T.Text
 getText = fmap decodeUtf8 bytes
   where
@@ -143,6 +151,7 @@ getText = fmap decodeUtf8 bytes
          <|> (expect _TEXT_16 *> liftM fromIntegral G.getWord16be >>= G.getByteString)
          <|> (expect _TEXT_32 *> liftM fromIntegral G.getWord32be >>= G.getByteString)
 
+{-# INLINEABLE putVector #-}
 putVector :: V.Vector P.Put -> P.Put
 putVector vec = case V.length vec of
     numElts | numElts == 0          -> put _TINY_LIST_FIRST
@@ -152,6 +161,7 @@ putVector vec = case V.length vec of
     numElts | numElts <= 2147483647 -> V.foldl (*>) (put _LIST_32 *> P.putWord32be (fromIntegral numElts)) vec
     _                               -> V.foldl (*>) (put _LIST_STREAM) vec *> put _END_OF_STREAM
 
+{-# INLINEABLE getVector #-}
 getVector :: G.Get a -> G.Get (V.Vector a)
 getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 <|> getVectorStream
   where
@@ -164,14 +174,62 @@ getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 
       Just v  -> liftM (V.cons v) $ getVectorStreamElts get
       Nothing -> return V.empty
 
+{-# INLINEABLE streamList #-}
 streamList :: [P.Put] -> P.Put
 streamList elts = foldl (*>) (put _LIST_STREAM) elts *> put _END_OF_STREAM
 
+{-# INLINEABLE unStreamList #-}
 unStreamList :: G.Get a -> G.Get [a]
 unStreamList getElt = expect _LIST_STREAM *> unStreamElts getElt
   where
     unStreamElts get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
       Just elt -> liftM (elt :) $ unStreamElts get
+      Nothing  -> return []
+
+{-# INLINE putEntry #-}
+putEntry :: P.Put -> P.Put -> P.Put
+putEntry k v = k *> v
+
+{-# INLINE getEntry #-}
+getEntry :: G.Get a -> G.Get b -> G.Get (a, b)
+getEntry getKey getValue = do
+  k <- getKey
+  v <- getValue
+  return (k, v)
+
+{-# INLINEABLE putMap #-}
+putMap :: V.Vector P.Put -> P.Put
+putMap vec = case V.length vec of
+    numEntries | numEntries == 0          -> put _TINY_MAP_FIRST
+    numEntries | numEntries <= 15         -> putTiny _TINY_MAP_FIRST numEntries $ \put0 -> V.foldl (*>) put0 vec
+    numEntries | numEntries <= 255        -> V.foldl (*>) (put _MAP_8 *> P.putWord8 (fromIntegral numEntries)) vec
+    numEntries | numEntries <= 65535      -> V.foldl (*>) (put _MAP_16 *> P.putWord16be (fromIntegral numEntries)) vec
+    numEntries | numEntries <= 2147483647 -> V.foldl (*>) (put _MAP_32 *> P.putWord32be (fromIntegral numEntries)) vec
+    _                                     -> V.foldl (*>) (put _MAP_STREAM) vec *> put _END_OF_STREAM
+
+{-# INLINEABLE getMap #-}
+getMap :: G.Get (a, b) -> G.Get (V.Vector (a, b))
+getMap getPair = getTinyMap <|> getMap8 <|> getMap16 <|> getMap32 <|> getMapStream
+  where
+    getTinyMap = getTiny _TINY_MAP_FIRST $ \times -> V.replicateM times getPair
+    getMap8 = expect _MAP_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getPair
+    getMap16 = expect _MAP_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getPair
+    getMap32 = expect _MAP_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getPair
+    getMapStream = expect _MAP_STREAM *> getMapStreamEntries getPair
+    getMapStreamEntries get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+      Just v  -> liftM (V.cons v) $ getMapStreamEntries get
+      Nothing -> return V.empty
+
+{-# INLINEABLE streamMap #-}
+streamMap :: [P.Put] -> P.Put
+streamMap elts = foldl (*>) (put _MAP_STREAM) elts *> put _END_OF_STREAM
+
+{-# INLINEABLE unStreamMap #-}
+unStreamMap :: G.Get (a, b) -> G.Get [(a, b)]
+unStreamMap getPair = expect _MAP_STREAM *> unStreamEntries getPair
+  where
+    unStreamEntries get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+      Just elt -> liftM (elt :) $ unStreamEntries get
       Nothing  -> return []
 
 {-# INLINE putTiny #-}
@@ -181,6 +239,30 @@ putTiny marker times cont = cont $ P.putWord8 $ markerByte marker .|. fromIntegr
 {-# INLINE getTiny #-}
 getTiny :: Marker -> (Int -> G.Get a) -> G.Get a
 getTiny mask getElt = G.getWord8 >>= \w8 -> if markerByte mask == hi w8 then getElt (fromIntegral . lo $ w8) else empty
+
+-- {-# INLINEABLE putStruct #-}
+-- putStruct :: Signature -> V.Vector P.Put -> P.Put
+-- putMap vec = case V.length vec of
+--     numEntries | numEntries == 0          -> put _TINY_MAP_FIRST
+--     numEntries | numEntries <= 15         -> putTiny _TINY_MAP_FIRST numEntries $ \put0 -> V.foldl (*>) put0 vec
+--     numEntries | numEntries <= 255        -> V.foldl (*>) (put _MAP_8 *> P.putWord8 (fromIntegral numEntries)) vec
+--     numEntries | numEntries <= 65535      -> V.foldl (*>) (put _MAP_16 *> P.putWord16be (fromIntegral numEntries)) vec
+--     numEntries | numEntries <= 2147483647 -> V.foldl (*>) (put _MAP_32 *> P.putWord32be (fromIntegral numEntries)) vec
+--     _                                     -> V.foldl (*>) (put _MAP_STREAM) vec *> put _END_OF_STREAM
+--
+-- {-# INLINEABLE getStruct #-}
+-- getStruct :: Signature -> G.Get (V.Vector (a, b))
+-- getMap getPair = getTinyMap <|> getMap8 <|> getMap16 <|> getMap32 <|> getMapStream
+--   where
+--     getTinyMap = getTiny _TINY_MAP_FIRST $ \times -> V.replicateM times getPair
+--     getMap8 = expect _MAP_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getPair
+--     getMap16 = expect _MAP_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getPair
+--     getMap32 = expect _MAP_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getPair
+--     getMapStream = expect _MAP_STREAM *> getMapStreamEntries getPair
+--     getMapStreamEntries get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+--       Just v  -> liftM (V.cons v) $ getMapStreamEntries get
+--       Nothing -> return V.empty
+
 
 -- encode :: PackStream -> BB.Builder
 -- encode vs0 = step (unPackStream vs0 PEnd)
@@ -211,6 +293,6 @@ getTiny mask getElt = G.getWord8 >>= \w8 -> if markerByte mask == hi w8 then get
 --     wrap marker cont payload = write cont $ BB.word8 marker <> payload
 --     stream marker cont payload = wrap marker cont $ payload <> (BB.word8 _END_OF_STREAM)
 --
--- {-# INLINE encodePair #-}
+-- {-# INLINEABLE encodePair #-}
 -- encodePair :: (PackStream, PackStream) -> BB.Builder
 -- encodePair (l, r) = encode l <> encode r

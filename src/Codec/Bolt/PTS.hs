@@ -1,5 +1,8 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Codec.Bolt.PTS(
   Value(..),
+  LazyMap,
+  unLazyMap,
   CodecValue,
   Codec,
   toValue,
@@ -12,8 +15,11 @@ where
 
 import           Codec.Packstream.Atom
 import           Control.Applicative
+import           Control.Monad
 import           Data.Binary
 import           Data.Int
+import qualified Data.Map.Lazy         as LM
+import qualified Data.Map.Strict       as M
 import qualified Data.Text             as T
 import qualified Data.Vector           as V
 
@@ -23,7 +29,14 @@ data Value  = NULL
             | INTEGER {-# UNPACK #-} !Int64
             | TEXT    {-# UNPACK #-} !T.Text
             | LIST    {-# UNPACK #-} !(V.Vector Value)
+            | MAP                    !(M.Map T.Text Value)
             deriving (Show, Eq)
+
+newtype LazyMap a = LazyMap { unLazyMap :: LM.Map T.Text a }
+
+instance Monoid a => Monoid (LazyMap a) where
+  mempty = LazyMap mempty
+  (LazyMap l) `mappend` (LazyMap r) = LazyMap $ l `mappend` r
 
 newtype CodecValue = Encode { unEncode :: Atom }
 
@@ -60,20 +73,29 @@ toAtom (INTEGER v) = case v of
           v8 = fromIntegral v :: Int8
           v16 = fromIntegral v :: Int16
           v32 = fromIntegral v :: Int32
-toAtom (TEXT txt)  = AText txt
-toAtom (LIST vs)   = AVector $ V.map toAtom vs
+toAtom (TEXT txt) = AText txt
+toAtom (LIST vs)  = AVector $ V.map toAtom vs
+toAtom (MAP m)    = AMap $ M.foldMapWithKey toEntryVector m
+
+toEntryVector :: a -> Value -> V.Vector (a, Atom)
+toEntryVector k v = return (k, toAtom v)
 
 fromAtom :: Atom -> Value
-fromAtom ANull        = NULL
-fromAtom (ABool b)    = BOOL b
-fromAtom (ADouble v)  = FLOAT v
-fromAtom (AInt8 v)    = INTEGER $ fromIntegral v
-fromAtom (AInt16 v)   = INTEGER $ fromIntegral v
-fromAtom (AInt32 v)   = INTEGER $ fromIntegral v
-fromAtom (AInt64 v)   = INTEGER v
-fromAtom (AText txt)  = TEXT txt
-fromAtom (AVector vs) = LIST $ V.map fromAtom vs
-fromAtom (AList vs)   = LIST $ V.fromList $ map fromAtom vs
+fromAtom ANull             = NULL
+fromAtom (ABool b)         = BOOL b
+fromAtom (ADouble v)       = FLOAT v
+fromAtom (AInt8 v)         = INTEGER $ fromIntegral v
+fromAtom (AInt16 v)        = INTEGER $ fromIntegral v
+fromAtom (AInt32 v)        = INTEGER $ fromIntegral v
+fromAtom (AInt64 v)        = INTEGER v
+fromAtom (AText txt)       = TEXT txt
+fromAtom (AVector vs)      = LIST $ V.map fromAtom vs
+fromAtom (AList vs)        = LIST $ V.fromList $ map fromAtom vs
+fromAtom (AMap vs)         = MAP $ V.foldl insertFromEntry M.empty vs
+fromAtom (AStreamedMap vs) = MAP $ foldl insertFromEntry M.empty vs
+
+insertFromEntry :: M.Map T.Text Value -> (T.Text, Atom) -> M.Map T.Text Value
+insertFromEntry m (k, v) = M.insert k (fromAtom v) m
 
 instance Codec () where
   toValue _ = NULL
@@ -171,61 +193,28 @@ instance Codec a => Codec [a] where
   decodeValue (Encode (AVector vs)) = mapM (decodeValue . Encode) $ V.toList vs
   decodeValue _ = Nothing
 
-  -- encodeValue vs = Encode $ AVector $ V.map (unEncode . encodeValue) vs
+instance Codec a => Codec (M.Map T.Text a) where
+  toValue m = MAP $ M.map toValue m
+  fromValue (MAP m) = M.foldMapWithKey foldEntry m
+    where foldEntry k v = fmap (M.singleton k) (fromValue v)
+  fromValue _ = Nothing
+  encodeValue m = Encode $ AMap $ V.fromList $ map mapEntry $ M.toList m
+    where mapEntry (k, v) = (k, unEncode $ encodeValue v)
+  decodeValue (Encode (AMap vs)) = V.foldM foldEntry M.empty vs
+    where foldEntry m (k, v) = fmap (\x -> M.insert k x m) $ decodeValue $ Encode v
+  decodeValue (Encode (AStreamedMap vs)) = foldM foldEntry M.empty vs
+    where foldEntry m (k, v) = fmap (\x -> M.insert k x m) $ decodeValue $ Encode v
+  decodeValue _ = Nothing
 
---
--- instance ValueEncodable d => StreamableValue (M.Map String d) where
---   streamed = MkStreamedValue
---
--- instance ValueEncodable d => StreamableValue (M.Map T.Text d) where
---   streamed = MkStreamedValue
---
--- instance ValueEncodable Bool where
---   encodeValue False = MkValue PE.false
---   encodeValue True = MkValue PE.true
---
--- _packValue :: ValueEncodable d => d -> PE.PackStream
--- _packValue = valuePackStream . encodeValue
---
--- instance ValueEncodable Val where
---   encodeValue (Val v) = encodeValue v
---
--- instance ValueEncodable Int8 where encodeValue = MkValue . PE.int8
--- instance ValueEncodable Int16 where encodeValue = MkValue . PE.int16
--- instance ValueEncodable Int32 where encodeValue = MkValue . PE.int32
--- instance ValueEncodable Int64 where encodeValue = MkValue . PE.int64
--- instance ValueEncodable Double where encodeValue = MkValue . PE.float64
--- instance ValueEncodable Int where encodeValue = MkValue . PE.int
---
--- instance ValueEncodable String where encodeValue = MkValue . PE.string
--- instance ValueEncodable T.Text where encodeValue = MkValue . PE.text
---
--- instance ValueEncodable d => ValueEncodable (Maybe d) where
---   encodeValue (Just d) = encodeValue d
---   encodeValue Nothing = MkValue PE.null
---
--- instance ValueEncodable d => ValueEncodable [d] where
---   encodeValue vs = MkValue . PE.list $ map _packValue vs
---
--- instance ValueEncodable d => ValueEncodable (StreamedValue [d]) where
---   encodeValue vs = MkValue . PE.listStream $ map _packValue $ streamedValue vs
---
--- instance ValueEncodable v => ValueEncodable (M.Map String v) where
---   encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] m
---     where
---       collect key val pairs = (_packValue key, _packValue val) : pairs
---
--- instance ValueEncodable v => ValueEncodable (StreamedValue (M.Map String v)) where
---   encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] $ streamedValue m
---     where
---       collect key val pairs = (_packValue key, _packValue val) : pairs
---
--- instance ValueEncodable v => ValueEncodable (M.Map T.Text v) where
---   encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] m
---     where
---       collect key val pairs = (_packValue key, _packValue val) : pairs
---
--- instance ValueEncodable v => ValueEncodable (StreamedValue (M.Map T.Text v)) where
---   encodeValue m = MkValue . PE.map $ M.foldrWithKey collect [] $ streamedValue m
---     where
---       collect key val pairs = (_packValue key, _packValue val) : pairs
+instance Codec a => Codec (LazyMap (M.Map T.Text a)) where
+  toValue (LazyMap m) = MAP $ LM.map toValue m
+  fromValue (MAP m) = M.foldMapWithKey foldEntry m
+    where foldEntry k v = fmap LazyMap $ fmap (LM.singleton k) (fromValue v)
+  fromValue _ = Nothing
+  encodeValue (LazyMap m) = Encode $ AStreamedMap $ map mapEntry $ LM.toList m
+    where mapEntry (k, v) = (k, unEncode $ encodeValue v)
+  decodeValue (Encode (AMap vs)) = LazyMap <$> V.foldM foldEntry LM.empty vs
+    where foldEntry m (k, v) = fmap (\x -> LM.insert k x m) $ decodeValue $ Encode v
+  decodeValue (Encode (AStreamedMap vs)) = LazyMap <$> foldM foldEntry LM.empty vs
+    where foldEntry m (k, v) = fmap (\x -> LM.insert k x m) $ decodeValue $ Encode v
+  decodeValue _ = Nothing

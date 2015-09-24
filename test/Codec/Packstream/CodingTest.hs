@@ -12,14 +12,11 @@ import qualified Data.Binary.Get                  as G
 import qualified Data.Binary.Put                  as P
 import qualified Data.Vector                      as V
 
-import           Test.SmallCheck.Series
 import           Test.SmallCheck.Series.Instances ()
 import           Test.Tasty
 import qualified Test.Tasty.SmallCheck            as SC
 
 import qualified Codec.Packstream.Coding          as PSC
-import qualified Codec.Packstream.Marker          as PSM
-import qualified Codec.Packstream.Signature       as PSS
 
 import           Test.SCInstances
 
@@ -41,10 +38,14 @@ unitTests =
     ],
     testGroup "container coding" [
       SC.testProperty "bool vector coding" $ propVerifyCoding (putVec PSC.putBool) (getVec PSC.getBool),
-      SC.testProperty "int8 list coding" $ propVerifyCoding (putList PSC.putInt8) (getList PSC.getInt8)
+      SC.testProperty "int8 list coding" $ propVerifyCoding (putList PSC.putInt8) (getList PSC.getInt8),
+      SC.testProperty "(text, int8) map coding" $ SC.changeDepth (const 4) $ propVerifyCoding (putMap PSC.putInt8) (getMap PSC.getInt8)
     ]
   ]
   where
+    putMap putElt vec = PSC.putMap $ V.map (putEntry putElt) $ V.map unEntry $ vector vec
+    putEntry putElt (k, v) = PSC.putEntry (PSC.putText k) (putElt v)
+    getMap getElt = fmap MkVec $ liftM (V.map MkEntry) $ PSC.getMap $ PSC.getEntry PSC.getText getElt
     putList putElt lst = PSC.streamList $ map putElt lst
     getList = PSC.unStreamList
     putVec putElt vec = PSC.putVector $ V.map putElt $ vector vec

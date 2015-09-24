@@ -1,5 +1,5 @@
 name:                neo4j-driver
-version:             0.1.0.0
+version:             1.0.0.0
 synopsis:            Neo4j driver for connecting to the Neo4j graph database using the Bolt protocol
 description:         Please see README.md
 homepage:            http://github.com/boggle/neo4j-haskell-driver
@@ -34,7 +34,7 @@ library
                     , data-binary-ieee754 >= 0.4.4
                     , text                >= 1.2.1
                     , vector              >= 0.10.12
-                    -- , containers          >= 0.5.2.0
+                    , containers          >= 0.5.6.0
 
   default-language:   Haskell2010
   default-extensions: LambdaCase
@@ -58,10 +58,10 @@ test-suite neo4j-driver-test
                     , smallcheck         >= 1.1.1
                     , smallcheck-series  >= 0.5.1
                     -- , tasty-quickcheck   >= 0.8.3.2
-                    -- , bytestring         >= 0.10.6
                     , binary             >= 0.7.5
                     , text               >= 1.2.1
                     , vector             >= 0.10.12
+                    , containers         >= 0.5.6.0
 
   default-language:   Haskell2010
   default-extensions: NegativeLiterals
