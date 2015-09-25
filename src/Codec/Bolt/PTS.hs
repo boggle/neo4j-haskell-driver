@@ -1,6 +1,10 @@
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances         #-}
 module Codec.Bolt.PTS(
   Value(..),
+  toAtom,
+  fromAtom,
+  DynValue,
   NodeView(..),
   RelationshipView(..),
   Path,
@@ -34,17 +38,25 @@ data Value  = NULL
             | FLOAT        {-# UNPACK #-} !Double
             | INTEGER      {-# UNPACK #-} !Int64
             | TEXT         {-# UNPACK #-} !T.Text
-            | LIST         {-# UNPACK #-} !(V.Vector Value)
-            | MAP                         !(M.Map T.Text Value)
+            | LIST         {-# UNPACK #-} !(V.Vector DynValue)
+            | MAP                         !(M.Map T.Text DynValue)
             | NODE         {-# UNPACK #-} !NodeView
             | RELATIONSHIP {-# UNPACK #-} !RelationshipView
             | PATH         {-# UNPACK #-} !Path
             deriving (Show, Eq)
 
+data DynValue = forall a. (Codec a) => DynValue a
+
+instance Show DynValue where
+  show (DynValue v) = show v
+
+instance Eq DynValue where
+  (==) l r = toValue l == toValue r
+
 data NodeView = NodeView {
     nodeId         :: T.Text,
     nodeLabels     :: V.Vector T.Text,
-    nodeProperties :: M.Map T.Text Value
+    nodeProperties :: M.Map T.Text DynValue
   } deriving (Eq, Show)
 
 data RelationshipView = RelationshipView {
@@ -52,7 +64,7 @@ data RelationshipView = RelationshipView {
     relationshipType       :: T.Text,
     relationshipStartNode  :: T.Text,
     relationshipEndNode    :: T.Text,
-    relationshipProperties :: M.Map T.Text Value
+    relationshipProperties :: M.Map T.Text DynValue
   } deriving (Eq, Show)
 
 data Path = Path {-# UNPACK #-} !NodeView {-# UNPACK #-} !(V.Vector (RelationshipView, NodeView))
@@ -67,7 +79,7 @@ pathSteps (Path _ steps) = steps
 pathEndNode :: Path -> Maybe NodeView
 pathEndNode (Path _ steps) = snd <$> V.lastM steps
 
-newtype LazyMap a = LazyMap { unLazyMap :: LM.Map T.Text a }
+newtype LazyMap a = LazyMap { unLazyMap :: LM.Map T.Text a } deriving (Eq, Show)
 
 instance Monoid a => Monoid (LazyMap a) where
   mempty = LazyMap mempty
@@ -79,7 +91,7 @@ instance Binary CodecValue where
   put = put . unEncode
   get = liftA Encode get
 
-class Codec a where
+class (Show a, Eq a) => Codec a where
   toValue :: a -> Value
   fromValue :: Value -> Maybe a
   {-# INLINEABLE encodeValue #-}
@@ -109,11 +121,11 @@ toAtom (INTEGER v) = case v of
           v16 = fromIntegral v :: Int16
           v32 = fromIntegral v :: Int32
 toAtom (TEXT txt) = AText txt
-toAtom (LIST vs)  = AVector $ V.map toAtom vs
+toAtom (LIST vs)  = AVector $ V.map (toAtom . toValue) vs
 toAtom (MAP m)    = AMap $ M.foldMapWithKey toEntryVector m
 
-toEntryVector :: a -> Value -> V.Vector (a, Atom)
-toEntryVector k v = return (k, toAtom v)
+toEntryVector :: a -> DynValue -> V.Vector (a, Atom)
+toEntryVector k v = return (k, toAtom $ toValue v)
 
 fromAtom :: Atom -> Value
 fromAtom ANull             = NULL
@@ -124,13 +136,17 @@ fromAtom (AInt16 v)        = INTEGER $ fromIntegral v
 fromAtom (AInt32 v)        = INTEGER $ fromIntegral v
 fromAtom (AInt64 v)        = INTEGER v
 fromAtom (AText txt)       = TEXT txt
-fromAtom (AVector vs)      = LIST $ V.map fromAtom vs
-fromAtom (AList vs)        = LIST $ V.fromList $ map fromAtom vs
+fromAtom (AVector vs)      = LIST $ V.map (DynValue . fromAtom) vs
+fromAtom (AList vs)        = LIST $ V.fromList $ map (DynValue . fromAtom) vs
 fromAtom (AMap vs)         = MAP $ V.foldl insertFromEntry M.empty vs
 fromAtom (AStreamedMap vs) = MAP $ foldl insertFromEntry M.empty vs
 
-insertFromEntry :: M.Map T.Text Value -> (T.Text, Atom) -> M.Map T.Text Value
-insertFromEntry m (k, v) = M.insert k (fromAtom v) m
+insertFromEntry :: M.Map T.Text DynValue -> (T.Text, Atom) -> M.Map T.Text DynValue
+insertFromEntry m (k, v) = M.insert k (DynValue $ fromAtom v) m
+
+instance Codec DynValue where
+  toValue (DynValue x)= toValue x
+  fromValue = Just . DynValue
 
 instance Codec () where
   toValue _ = NULL
@@ -211,8 +227,8 @@ instance Codec Int where
   fromValue _ = Nothing
 
 instance Codec a => Codec (V.Vector a) where
-  toValue vs = LIST $ V.map toValue vs
-  fromValue (LIST vs) = V.mapM fromValue vs
+  toValue vs = LIST $ V.map (DynValue . toValue) vs
+  fromValue (LIST vs) = V.mapM (fromValue . toValue) vs
   fromValue _ = Nothing
   encodeValue vs = Encode $ AVector $ V.map (unEncode . encodeValue) vs
   decodeValue (Encode (AList vs)) = mapM (decodeValue . Encode) $ V.fromList vs
@@ -220,8 +236,8 @@ instance Codec a => Codec (V.Vector a) where
   decodeValue _ = Nothing
 
 instance Codec a => Codec [a] where
-  toValue vs = LIST $ V.fromList $ map toValue vs
-  fromValue (LIST vs) = mapM fromValue $ V.toList vs
+  toValue vs = LIST $ V.fromList $ map (DynValue . toValue) vs
+  fromValue (LIST vs) = mapM (fromValue . toValue) $ V.toList vs
   fromValue _ = Nothing
   encodeValue vs = Encode $ AList $ map (unEncode . encodeValue) vs
   decodeValue (Encode (AList vs)) = mapM (decodeValue . Encode) vs
@@ -229,9 +245,9 @@ instance Codec a => Codec [a] where
   decodeValue _ = Nothing
 
 instance Codec a => Codec (M.Map T.Text a) where
-  toValue m = MAP $ M.map toValue m
+  toValue m = MAP $ M.map (DynValue . toValue) m
   fromValue (MAP m) = M.foldMapWithKey foldEntry m
-    where foldEntry k v = fmap (M.singleton k) (fromValue v)
+    where foldEntry k v = fmap (M.singleton k) ((fromValue . toValue) v)
   fromValue _ = Nothing
   encodeValue m = Encode $ AMap $ V.fromList $ map mapEntry $ M.toList m
     where mapEntry (k, v) = (k, unEncode $ encodeValue v)
@@ -242,10 +258,10 @@ instance Codec a => Codec (M.Map T.Text a) where
   decodeValue _ = Nothing
 
 instance Codec a => Codec (LazyMap (M.Map T.Text a)) where
-  toValue (LazyMap m) = MAP $ LM.map toValue m
+  toValue (LazyMap m) = MAP $ LM.map (DynValue . toValue) m
   fromValue (MAP m) = M.foldMapWithKey foldEntry m
     where
-      foldEntry k v = fmap (lazyMapSingleton k) (fromValue v)
+      foldEntry k v = fmap (lazyMapSingleton k) ((fromValue . toValue) v)
       lazyMapSingleton k v = LazyMap $ LM.singleton k v
   fromValue _ = Nothing
   encodeValue (LazyMap m) = Encode $ AStreamedMap $ map mapEntry $ LM.toList m
