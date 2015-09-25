@@ -27,14 +27,17 @@ module Codec.Packstream.Coding(
   putMap,
   getMap,
   streamMap,
-  unStreamMap
+  unStreamMap,
+  putStructure,
+  getStructure
 ) where
 
 import           Codec.Packstream.Expect
 import           Codec.Packstream.Marker
+import           Codec.Packstream.Signature
 import           Control.Applicative
 import           Control.Monad
-import           Data.Binary             (put)
+import           Data.Binary             (put, get)
 import qualified Data.ByteString         as B
 import qualified Data.Binary.Get         as G
 import qualified Data.Binary.IEEE754     as IEEE754
@@ -169,9 +172,9 @@ getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 
     getVector8 = expect _LIST_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getElt
     getVector16 = expect _LIST_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getElt
     getVector32 = expect _LIST_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getElt
-    getVectorStream = expect _LIST_STREAM *> getVectorStreamElts getElt
-    getVectorStreamElts get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
-      Just v  -> liftM (V.cons v) $ getVectorStreamElts get
+    getVectorStream = expect _LIST_STREAM *> getVectorStreamElts
+    getVectorStreamElts = (Just <$> getElt <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+      Just v  -> liftM (V.cons v) getVectorStreamElts
       Nothing -> return V.empty
 
 {-# INLINEABLE streamList #-}
@@ -180,10 +183,10 @@ streamList elts = foldl (*>) (put _LIST_STREAM) elts *> put _END_OF_STREAM
 
 {-# INLINEABLE unStreamList #-}
 unStreamList :: G.Get a -> G.Get [a]
-unStreamList getElt = expect _LIST_STREAM *> unStreamElts getElt
+unStreamList getElt = expect _LIST_STREAM *> unStreamElts
   where
-    unStreamElts get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
-      Just elt -> liftM (elt :) $ unStreamElts get
+    unStreamElts = (Just <$> getElt <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+      Just elt -> liftM (elt :) unStreamElts
       Nothing  -> return []
 
 {-# INLINE putEntry #-}
@@ -215,9 +218,9 @@ getMap getPair = getTinyMap <|> getMap8 <|> getMap16 <|> getMap32 <|> getMapStre
     getMap8 = expect _MAP_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getPair
     getMap16 = expect _MAP_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getPair
     getMap32 = expect _MAP_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getPair
-    getMapStream = expect _MAP_STREAM *> getMapStreamEntries getPair
-    getMapStreamEntries get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
-      Just v  -> liftM (V.cons v) $ getMapStreamEntries get
+    getMapStream = expect _MAP_STREAM *> getMapStreamEntries
+    getMapStreamEntries = (Just <$> getPair <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+      Just v  -> liftM (V.cons v) getMapStreamEntries
       Nothing -> return V.empty
 
 {-# INLINEABLE streamMap #-}
@@ -226,11 +229,34 @@ streamMap elts = foldl (*>) (put _MAP_STREAM) elts *> put _END_OF_STREAM
 
 {-# INLINEABLE unStreamMap #-}
 unStreamMap :: G.Get (a, b) -> G.Get [(a, b)]
-unStreamMap getPair = expect _MAP_STREAM *> unStreamEntries getPair
+unStreamMap getPair = expect _MAP_STREAM *> unStreamEntries
   where
-    unStreamEntries get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
-      Just elt -> liftM (elt :) $ unStreamEntries get
+    unStreamEntries = (Just <$> getPair <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+      Just elt -> liftM (elt :) unStreamEntries
       Nothing  -> return []
+
+{-# INLINEABLE putStructure #-}
+putStructure :: Signature -> V.Vector P.Put -> P.Put
+putStructure sig vec = put sig *> body
+  where
+    body = case V.length vec of
+      numFields | numFields == 0     -> put _TINY_STRUCT_FIRST
+      numFields | numFields <= 15    -> putTiny _TINY_STRUCT_FIRST numFields $ \put0 -> V.foldl (*>) put0 vec
+      numFields | numFields <= 255   -> V.foldl (*>) (put _STRUCT_8 *> P.putWord8 (fromIntegral numFields)) vec
+      numFields | numFields <= 65535 -> V.foldl (*>) (put _STRUCT_16 *> P.putWord16be (fromIntegral numFields)) vec
+      _                              -> error "Cannot encode structures with more then 65535 fields"
+
+{-# INLINEABLE getStructure #-}
+getStructure :: G.Get a -> G.Get (Signature, V.Vector a)
+getStructure getElt = do
+    sig <- get
+    body <- getData
+    return (sig, body)
+  where
+    getData = getTinyStruct <|> getStruct8 <|> getStruct16
+    getTinyStruct = getTiny _TINY_STRUCT_FIRST $ \times -> V.replicateM times getElt
+    getStruct8 = expect _STRUCT_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getElt
+    getStruct16 = expect _STRUCT_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getElt
 
 {-# INLINE putTiny #-}
 putTiny :: Marker -> Int -> (P.Put -> P.Put) -> P.Put
@@ -239,60 +265,3 @@ putTiny marker times cont = cont $ P.putWord8 $ markerByte marker .|. fromIntegr
 {-# INLINE getTiny #-}
 getTiny :: Marker -> (Int -> G.Get a) -> G.Get a
 getTiny mask getElt = G.getWord8 >>= \w8 -> if markerByte mask == hi w8 then getElt (fromIntegral . lo $ w8) else empty
-
--- {-# INLINEABLE putStruct #-}
--- putStruct :: Signature -> V.Vector P.Put -> P.Put
--- putMap vec = case V.length vec of
---     numEntries | numEntries == 0          -> put _TINY_MAP_FIRST
---     numEntries | numEntries <= 15         -> putTiny _TINY_MAP_FIRST numEntries $ \put0 -> V.foldl (*>) put0 vec
---     numEntries | numEntries <= 255        -> V.foldl (*>) (put _MAP_8 *> P.putWord8 (fromIntegral numEntries)) vec
---     numEntries | numEntries <= 65535      -> V.foldl (*>) (put _MAP_16 *> P.putWord16be (fromIntegral numEntries)) vec
---     numEntries | numEntries <= 2147483647 -> V.foldl (*>) (put _MAP_32 *> P.putWord32be (fromIntegral numEntries)) vec
---     _                                     -> V.foldl (*>) (put _MAP_STREAM) vec *> put _END_OF_STREAM
---
--- {-# INLINEABLE getStruct #-}
--- getStruct :: Signature -> G.Get (V.Vector (a, b))
--- getMap getPair = getTinyMap <|> getMap8 <|> getMap16 <|> getMap32 <|> getMapStream
---   where
---     getTinyMap = getTiny _TINY_MAP_FIRST $ \times -> V.replicateM times getPair
---     getMap8 = expect _MAP_8 >> liftM fromIntegral G.getWord8 >>= \times -> V.replicateM times getPair
---     getMap16 = expect _MAP_16 >> liftM fromIntegral G.getWord16be >>= \times -> V.replicateM times getPair
---     getMap32 = expect _MAP_32 >> liftM fromIntegral G.getWord32be >>= \times -> V.replicateM times getPair
---     getMapStream = expect _MAP_STREAM *> getMapStreamEntries getPair
---     getMapStreamEntries get = (Just <$> get <|> Nothing <$ expect _END_OF_STREAM) >>= \case
---       Just v  -> liftM (V.cons v) $ getMapStreamEntries get
---       Nothing -> return V.empty
-
-
--- encode :: PackStream -> BB.Builder
--- encode vs0 = step (unPackStream vs0 PEnd)
---   where
---     step (PMap [] cont) = BB.word8 _TINY_MAP_FIRST <> step cont
---     step (PMap elts cont) = build elts 0 mempty
---       where
---         build :: [(PackStream, PackStream)] -> Int -> PackStream -> BB.Builder
---         build ((key, value):bs) numElts folded = build bs (numElts + 1) (folded `mappend` key `mappend` value)
---         build [] numElts folded | numElts <= 15 = mark (_TINY_MAP_FIRST .|. (fromIntegral numElts)) $ unPackStream folded cont
---         build [] numElts folded | numElts <= 255 = wrap _MAP_8 (unPackStream folded cont) $ BB.word8 (fromIntegral numElts)
---         build [] numElts folded | numElts <= 65535 = wrap _MAP_64 (unPackStream folded cont) $ BB.word64BE (fromIntegral numElts)
---         build [] numElts folded | numElts <= 2147483647 = wrap _MAP_32 (unPackStream folded cont) $ BB.word32BE (fromIntegral numElts)
---         build bs _ folded = stream _MAP_STREAM (unPackStream folded cont) $ foldl (<>) (encode folded) (PRE.map encodePair bs)
---     step (PMapStream elts cont) = stream _MAP_STREAM cont $ foldl (<>) mempty (PRE.map encodePair elts)
---     step (PStructure sig [] cont) = BB.word8 0xb0 <> BB.word8 (signatureByte sig) <> step cont
---     step (PStructure sig elts cont) = build elts 0 mempty
---       where
---         build :: [PackStream] -> Int -> PackStream -> BB.Builder
---         build (b:bs) numElts folded = build bs (numElts + 1) (folded `mappend` b)
---         build [] numElts folded | numElts <= 15 = wrap (_TINY_STRUCT_FIRST .|. (fromIntegral numElts)) (unPackStream folded cont) $ BB.word8 (signatureByte sig)
---         build [] numElts folded | numElts <= 255 = wrap _STRUCT_8 (unPackStream folded cont) $ BB.word8 (fromIntegral numElts) <> BB.word8 (signatureByte sig)
---         build [] numElts folded | numElts <= 65535 = wrap _STRUCT_64 (unPackStream folded cont) $ BB.word64BE (fromIntegral numElts) <> BB.word8 (signatureByte sig)
---         build [] _ _ = error "Cannot encode more than 65535 elements in a structure"
---     step PEnd = mempty
---     write cont builder = builder <> step cont
---     mark marker cont = write cont $ BB.word8 marker
---     wrap marker cont payload = write cont $ BB.word8 marker <> payload
---     stream marker cont payload = wrap marker cont $ payload <> (BB.word8 _END_OF_STREAM)
---
--- {-# INLINEABLE encodePair #-}
--- encodePair :: (PackStream, PackStream) -> BB.Builder
--- encodePair (l, r) = encode l <> encode r

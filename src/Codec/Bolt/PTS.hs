@@ -1,6 +1,12 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Codec.Bolt.PTS(
   Value(..),
+  NodeView(..),
+  RelationshipView(..),
+  Path,
+  pathStartNode,
+  pathSteps,
+  pathEndNode,
   LazyMap,
   unLazyMap,
   CodecValue,
@@ -24,13 +30,42 @@ import qualified Data.Text             as T
 import qualified Data.Vector           as V
 
 data Value  = NULL
-            | BOOL                   !Bool
-            | FLOAT   {-# UNPACK #-} !Double
-            | INTEGER {-# UNPACK #-} !Int64
-            | TEXT    {-# UNPACK #-} !T.Text
-            | LIST    {-# UNPACK #-} !(V.Vector Value)
-            | MAP                    !(M.Map T.Text Value)
+            | BOOL                        !Bool
+            | FLOAT        {-# UNPACK #-} !Double
+            | INTEGER      {-# UNPACK #-} !Int64
+            | TEXT         {-# UNPACK #-} !T.Text
+            | LIST         {-# UNPACK #-} !(V.Vector Value)
+            | MAP                         !(M.Map T.Text Value)
+            | NODE         {-# UNPACK #-} !NodeView
+            | RELATIONSHIP {-# UNPACK #-} !RelationshipView
+            | PATH         {-# UNPACK #-} !Path
             deriving (Show, Eq)
+
+data NodeView = NodeView {
+    nodeId         :: T.Text,
+    nodeLabels     :: V.Vector T.Text,
+    nodeProperties :: M.Map T.Text Value
+  } deriving (Eq, Show)
+
+data RelationshipView = RelationshipView {
+    relationshipId         :: T.Text,
+    relationshipType       :: T.Text,
+    relationshipStartNode  :: T.Text,
+    relationshipEndNode    :: T.Text,
+    relationshipProperties :: M.Map T.Text Value
+  } deriving (Eq, Show)
+
+data Path = Path {-# UNPACK #-} !NodeView {-# UNPACK #-} !(V.Vector (RelationshipView, NodeView))
+  deriving (Show, Eq)
+
+pathStartNode :: Path -> NodeView
+pathStartNode (Path startNode _) = startNode
+
+pathSteps :: Path -> V.Vector (RelationshipView, NodeView)
+pathSteps (Path _ steps) = steps
+
+pathEndNode :: Path -> Maybe NodeView
+pathEndNode (Path _ steps) = snd <$> V.lastM steps
 
 newtype LazyMap a = LazyMap { unLazyMap :: LM.Map T.Text a }
 
@@ -209,7 +244,9 @@ instance Codec a => Codec (M.Map T.Text a) where
 instance Codec a => Codec (LazyMap (M.Map T.Text a)) where
   toValue (LazyMap m) = MAP $ LM.map toValue m
   fromValue (MAP m) = M.foldMapWithKey foldEntry m
-    where foldEntry k v = fmap LazyMap $ fmap (LM.singleton k) (fromValue v)
+    where
+      foldEntry k v = fmap (lazyMapSingleton k) (fromValue v)
+      lazyMapSingleton k v = LazyMap $ LM.singleton k v
   fromValue _ = Nothing
   encodeValue (LazyMap m) = Encode $ AStreamedMap $ map mapEntry $ LM.toList m
     where mapEntry (k, v) = (k, unEncode $ encodeValue v)
