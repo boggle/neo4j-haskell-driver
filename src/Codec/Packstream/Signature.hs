@@ -23,7 +23,7 @@ import qualified Data.Binary.Get as G
 import qualified Data.Binary.Put as P
 import           Data.Word
 
-newtype Signature = MkSignature { signatureByte :: Word8 } deriving (Eq, Show)
+newtype Signature = MkSignature { signatureByte :: Word8 } deriving (Eq, Ord, Show)
 
 allSignatures :: [Signature]
 allSignatures = [

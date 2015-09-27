@@ -46,7 +46,7 @@ import qualified Data.Binary.Get as G
 import qualified Data.Binary.Put as P
 import           Data.Word
 
-newtype Marker = MkMarker { markerByte :: Word8 } deriving (Eq, Show)
+newtype Marker = MkMarker { markerByte :: Word8 } deriving (Eq, Ord, Show)
 
 allMarkers :: [Marker]
 allMarkers =

@@ -14,23 +14,23 @@ import           Codec.Packstream.Signature
 
 data Atom = ANull
           | ABool                     !Bool
-          | ADouble {-# UNPACK #-}    !Double
-          | AInt8   {-# UNPACK #-}    !Int8
-          | AInt16  {-# UNPACK #-}    !Int16
-          | AInt32  {-# UNPACK #-}    !Int32
-          | AInt64  {-# UNPACK #-}    !Int64
-          | AText   {-# UNPACK #-}    !T.Text
-          | AVector {-# UNPACK #-}    !(V.Vector Atom)
+          | ADouble    {-# UNPACK #-} !Double
+          | AInt8      {-# UNPACK #-} !Int8
+          | AInt16     {-# UNPACK #-} !Int16
+          | AInt32     {-# UNPACK #-} !Int32
+          | AInt64     {-# UNPACK #-} !Int64
+          | AText      {-# UNPACK #-} !T.Text
+          | AVector    {-# UNPACK #-} !(V.Vector Atom)
           | AList                     [Atom]
-          | AMap    {-# UNPACK #-}    !(V.Vector (T.Text, Atom))
+          | AMap       {-# UNPACK #-} !(V.Vector (T.Text, Atom))
           | AStreamedMap              [(T.Text, Atom)]
           | AStructure {-# UNPACK #-} !Signature {-# UNPACK #-} !(V.Vector Atom)
-          deriving (Show, Eq)
+          deriving (Eq, Ord, Show)
 
 instance Binary Atom where
   put = \case
     ANull               -> Coding.putNull
-    AStructure sig vec  -> Coding.putStructure sig $ V.map put vec 
+    AStructure sig vec  -> Coding.putStructure sig $ V.map put vec
     AText txt           -> Coding.putText txt
     ABool b             -> Coding.putBool b
     AInt8 i8            -> fromMaybe (Coding.putInt8 i8) (Coding.putTinyInt i8)

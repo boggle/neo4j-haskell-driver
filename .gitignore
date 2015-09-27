@@ -1,2 +1,6 @@
 dist
 .stack-work
+neo4j-driver-test.aux
+neo4j-driver-test.hp
+neo4j-driver-test.prof
+neo4j-driver-test.ps

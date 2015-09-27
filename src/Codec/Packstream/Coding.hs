@@ -33,6 +33,7 @@ module Codec.Packstream.Coding(
 ) where
 
 import           Codec.Packstream.Expect
+import           Codec.Packstream.Table as TBL
 import           Codec.Packstream.Marker
 import           Codec.Packstream.Signature
 import           Control.Applicative
@@ -179,13 +180,14 @@ getVector getElt = getTinyVector <|> getVector8 <|> getVector16 <|> getVector32 
 
 {-# INLINEABLE streamList #-}
 streamList :: [P.Put] -> P.Put
-streamList elts = foldl (*>) (put _LIST_STREAM) elts *> put _END_OF_STREAM
+streamList elts = put _LIST_STREAM <* sequenceA elts <* put _END_OF_STREAM
 
 {-# INLINEABLE unStreamList #-}
 unStreamList :: G.Get a -> G.Get [a]
 unStreamList getElt = expect _LIST_STREAM *> unStreamElts
   where
-    unStreamElts = (Just <$> getElt <|> Nothing <$ expect _END_OF_STREAM) >>= \case
+    maybeGetElt = Just <$> getElt <|> Nothing <$ expect _END_OF_STREAM
+    unStreamElts = maybeGetElt >>= \case
       Just elt -> liftM (elt :) unStreamElts
       Nothing  -> return []
 
@@ -225,7 +227,7 @@ getMap getPair = getTinyMap <|> getMap8 <|> getMap16 <|> getMap32 <|> getMapStre
 
 {-# INLINEABLE streamMap #-}
 streamMap :: [P.Put] -> P.Put
-streamMap elts = foldl (*>) (put _MAP_STREAM) elts *> put _END_OF_STREAM
+streamMap elts = put _MAP_STREAM <* sequenceA elts <* put _END_OF_STREAM
 
 {-# INLINEABLE unStreamMap #-}
 unStreamMap :: G.Get (a, b) -> G.Get [(a, b)]
