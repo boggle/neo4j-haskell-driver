@@ -33,7 +33,6 @@ module Codec.Packstream.Coding(
 ) where
 
 import           Codec.Packstream.Expect
-import           Codec.Packstream.Table as TBL
 import           Codec.Packstream.Marker
 import           Codec.Packstream.Signature
 import           Control.Applicative

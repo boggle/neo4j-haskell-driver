@@ -10,6 +10,7 @@ module Codec.Packstream.Table(
 import qualified Data.Map   as M
 import           Data.Maybe (fromMaybe)
 
+-- TODO: Actually try it out
 -- TODO: Switch to using an array based lookup table
 
 newtype Table m a b = MkTable { unTable :: M.Map a (m b) } deriving (Show, Eq, Ord)
