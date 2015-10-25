@@ -7,6 +7,7 @@ module Codec.Packstream.Signature(
   _NODE,
   _PATH,
   _RELATIONSHIP,
+  _UNBOUND_RELATIONSHIP,
   _ACK_FAILURE_MESSAGE,
   _RUN_MESSAGE,
   _DISCARD_ALL_MESSAGE,
@@ -58,6 +59,9 @@ _PATH = MkSignature 0x50
 
 _RELATIONSHIP :: Signature
 _RELATIONSHIP = MkSignature 0x52
+
+_UNBOUND_RELATIONSHIP :: Signature
+_UNBOUND_RELATIONSHIP = MkSignature 0x72
 
 _ACK_FAILURE_MESSAGE :: Signature
 _ACK_FAILURE_MESSAGE = MkSignature 0x0f

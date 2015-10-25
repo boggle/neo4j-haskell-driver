@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE TypeFamilies              #-}
 module Codec.Bolt.PTS(
   Value(..),
   packValue,
@@ -8,30 +9,48 @@ module Codec.Bolt.PTS(
   DynValue,
   Id,
   unId,
-  NodeView(..),
-  RelationshipView(..),
-  StepView,
+  Node,
+  nodeId,
+  nodeLabels,
+  nodeProperties,
+  Relationship,
+  relationshipId,
+  relationshipType,
+  relationshipStartNodeId,
+  relationshipEndNodeId,
+  relationshipProperties,
+  Entity,
+  entityId,
+  entityProperties,
   Direction(..),
-  (-->),
-  (<--),
+  Step,
+  stepNode,
   stepRelationship,
-  stepRelationshipId,
   stepDirection,
-  stepOriginId,
-  stepDestination,
-  stepDestinationId,
-  PathView,
+  Segment,
+  segmentDirection,
+  segmentStartNode,
+  segmentEndNode,
+  segmentRelationshipId,
+  segmentRelationshipType,
+  segmentRelationshipProperties,
+  segmentRelationship,
+  (<-|),
+  (|--),
+  (--|),
+  (|->),
+  Path,
+  singleNodePath,
   (<@>),
   (<+>),
-  pathStartNode,
-  pathStartNodeId,
-  pathEndNode,
-  pathEndNodeId,
-  pathSteps,
+  pathLength,
   pathNodes,
-  pathNodeIds,
-  pathRels,
-  pathRelIds,
+  pathRelationships,
+  pathSegment,
+  pathSegments,
+  pathSegments_,
+  Directed(..),
+  Invertible(..),
   LazyMap,
   unLazyMap,
   EncodedValue,
@@ -43,17 +62,24 @@ module Codec.Bolt.PTS(
 
 where
 
+import qualified Codec.Bolt.Internal.IndexedMap as IM
 import           Codec.Packstream.Atom
 import           Codec.Packstream.Signature
 import           Control.Applicative
 import           Control.Monad
 import           Data.Binary
 import           Data.Int
-import qualified Data.Map.Lazy              as LM
-import qualified Data.Map.Strict            as M
-import           Data.Maybe                 (fromJust)
-import qualified Data.Text                  as T
-import qualified Data.Vector                as V
+import qualified Data.Map.Lazy                  as LM
+import qualified Data.Map.Strict                as M
+import           Data.Maybe                     (fromJust)
+import qualified Data.Text                      as T
+import qualified Data.Vector                    as V
+
+newtype EncodedValue = Encode { unEncode :: Atom }
+
+instance Binary EncodedValue where
+  put = put . unEncode
+  get = liftA Encode get
 
 data Value  = NULL
             | BOOL                        !Bool
@@ -62,24 +88,21 @@ data Value  = NULL
             | TEXT         {-# UNPACK #-} !T.Text
             | LIST         {-# UNPACK #-} !(V.Vector DynValue)
             | MAP                         !(M.Map T.Text DynValue)
-            | NODE         {-# UNPACK #-} !NodeView
-            | RELATIONSHIP {-# UNPACK #-} !RelationshipView
-            | PATH         {-# UNPACK #-} !PathView
-            deriving (Show, Eq)
+            | NODE         {-# UNPACK #-} !Node
+            | RELATIONSHIP {-# UNPACK #-} !Relationship
+            | PATH         {-# UNPACK #-} !Path
+            deriving (Show, Eq, Ord)
 
-newtype EncodedValue = Encode { unEncode :: Atom }
-
-instance Binary EncodedValue where
-  put = put . unEncode
-  get = liftA Encode get
-
-data DynValue = forall a. (Codec a) => DynValue {-# UNPACK #-} !a
+data DynValue = forall a. (Codec a) => DynValue a
 
 instance Show DynValue where
   show (DynValue v) = show v
 
 instance Eq DynValue where
   (==) l r = toValue l == toValue r
+
+instance Ord DynValue where
+  compare l r = compare (toValue l) (toValue r)
 
 class (Show a, Eq a) => Codec a where
   toValue :: a -> Value
@@ -97,106 +120,258 @@ class (Show a, Eq a) => Codec a where
   decodeValue :: EncodedValue -> Maybe a
   decodeValue bin = decodeValue bin >>= fromValue
 
-newtype Id = Id { unId :: Int64 } deriving (Eq, Show)
+newtype Id = Id { unId :: Int64 } deriving (Eq, Show, Ord)
 
-data NodeView = MkNodeView {
+data Node = MkNode {
     nodeId         :: Id,
     nodeLabels     :: V.Vector T.Text,
     nodeProperties :: M.Map T.Text DynValue
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Ord)
 
-data RelationshipView = MkRelationshipView {
+data Relationship = MkRelationship {
     relationshipId          :: Id,
     relationshipType        :: T.Text,
     relationshipStartNodeId :: Id,
     relationshipEndNodeId   :: Id,
     relationshipProperties  :: M.Map T.Text DynValue
-  } deriving (Eq, Show)
+} deriving (Eq, Show, Ord)
 
-data Direction = INCOMING | OUTGOING deriving (Eq, Show)
+class Entity a where
+  entityId :: a -> Id
+  entityProperties :: a -> M.Map T.Text DynValue
 
-data StepView = MkStepView RelationshipView Direction NodeView deriving (Eq, Show)
+instance Entity Node where
+  entityId = nodeId
+  entityProperties = nodeProperties
 
-(-->) :: RelationshipView -> NodeView-> Maybe StepView
-(-->) rel node | relationshipEndNodeId rel == nodeId node = Just $ MkStepView rel OUTGOING node
-(-->) _ _ = Nothing
+instance Entity Relationship where
+  entityId = relationshipId
+  entityProperties = relationshipProperties
 
-(<--) :: NodeView-> RelationshipView -> Maybe StepView
-(<--) node rel | relationshipStartNodeId rel == nodeId node = Just $ MkStepView rel INCOMING node
-(<--) _ _ = Nothing
+data Direction = INCOMING | OUTGOING deriving (Eq, Show, Ord)
 
-stepRelationship :: StepView -> RelationshipView
-stepRelationship (MkStepView rel _ _) = rel
+data Step = MkStep {
+  stepNode         :: Node,
+  stepRelationship :: Relationship,
+  stepDirection    :: Direction
+} deriving (Eq, Show, Ord)
 
-stepRelationshipId :: StepView -> Id
-stepRelationshipId = relationshipId . stepRelationship
+data Segment = MkSegment {
+    segmentDirection              :: Maybe Direction,
+    segmentRelationshipId         :: Id,
+    segmentRelationshipType       :: T.Text,
+    segmentStartNode              :: Node,
+    segmentEndNode                :: Node,
+    segmentRelationshipProperties :: M.Map T.Text DynValue
+} deriving (Eq, Show, Ord)
 
-stepDirection :: StepView -> Direction
-stepDirection (MkStepView _ dir _) = dir
+(--|) :: Node -> Relationship -> Maybe Step
+(--|) startNode rel =
+  if nodeId startNode == relationshipStartNodeId rel
+  then Just MkStep { stepNode = startNode, stepRelationship = rel, stepDirection = OUTGOING }
+  else Nothing
 
-stepOriginId :: StepView -> Id
-stepOriginId (MkStepView rel OUTGOING _) = relationshipStartNodeId rel
-stepOriginId (MkStepView rel INCOMING _) = relationshipEndNodeId rel
+(|->) :: Maybe Step -> Node -> Maybe Segment
+(|->) (Just step) endNode | stepDirection step == OUTGOING =
+    if nodeId endNode == relationshipEndNodeId rel
+    then Just MkSegment {
+      segmentDirection = if nodeId startNode == nodeId endNode then Nothing else Just OUTGOING,
+      segmentRelationshipId = relationshipId rel,
+      segmentRelationshipType = relationshipType rel,
+      segmentStartNode = startNode,
+      segmentEndNode = endNode,
+      segmentRelationshipProperties = relationshipProperties rel
+    }
+    else Nothing
+    where
+      startNode = stepNode step
+      rel = stepRelationship step
+(|->) _ _ = Nothing
 
-stepDestination :: StepView -> NodeView
-stepDestination (MkStepView _ _ node) = node
+(<-|) :: Node -> Relationship -> Maybe Step
+(<-|) endNode rel =
+  if nodeId endNode == relationshipEndNodeId rel
+  then Just MkStep { stepNode = endNode, stepRelationship = rel, stepDirection = INCOMING }
+  else Nothing
 
-stepDestinationId :: StepView -> Id
-stepDestinationId = nodeId . stepDestination
+(|--) :: Maybe Step -> Node -> Maybe Segment
+(|--) (Just step) startNode | stepDirection step == INCOMING =
+    if nodeId startNode == relationshipStartNodeId rel
+    then Just MkSegment {
+      segmentDirection = if nodeId startNode == nodeId endNode then Nothing else Just INCOMING,
+      segmentRelationshipId = relationshipId rel,
+      segmentRelationshipType = relationshipType rel,
+      segmentStartNode = startNode,
+      segmentEndNode = endNode,
+      segmentRelationshipProperties = relationshipProperties rel
+    }
+    else Nothing
+    where
+      endNode = stepNode step
+      rel = stepRelationship step
+(|--) _ _ = Nothing
 
-data PathView = MkPathView NodeView (V.Vector StepView) deriving (Eq, Show)
+segmentRelationship :: Segment -> Relationship
+segmentRelationship segment =
+  if segmentDirection segment == Just INCOMING
+  then MkRelationship {
+      relationshipId = segmentRelationshipId segment,
+      relationshipType = segmentRelationshipType segment,
+      relationshipStartNodeId = nodeId $ segmentEndNode segment,
+      relationshipEndNodeId = nodeId $ segmentStartNode segment,
+      relationshipProperties = segmentRelationshipProperties segment
+    }
+  else MkRelationship {
+      relationshipId = segmentRelationshipId segment,
+      relationshipType = segmentRelationshipType segment,
+      relationshipStartNodeId = nodeId $ segmentStartNode segment,
+      relationshipEndNodeId = nodeId $ segmentEndNode segment,
+      relationshipProperties = segmentRelationshipProperties segment
+    }
 
-singleNodePath :: NodeView -> PathView
-singleNodePath start = MkPathView start V.empty
+data Path = MkPath {
+  pathNodesMap         :: IM.IndexedMap Id Node,
+  pathRelationshipsMap :: IM.IndexedMap Id Relationship,
+  pathElements         :: V.Vector Int
+} deriving (Show, Eq, Ord)
 
-(<@>) :: NodeView -> Maybe PathView
+singleNodePath :: Node -> Path
+singleNodePath startNode = MkPath {
+  pathNodesMap = IM.singleton (nodeId startNode) startNode,
+  pathRelationshipsMap = IM.empty,
+  pathElements = V.empty
+}
+
+(<@>) :: Node -> Maybe Path
 (<@>) = Just . singleNodePath
 
-(<+>) :: Maybe PathView -> Maybe StepView -> Maybe PathView
-(<+>) (Just path @ (MkPathView start steps)) (Just nextStep) =
-  if pathEndNodeId path == stepOriginId nextStep
-    then Just $ MkPathView start $ V.snoc steps nextStep
-    else Nothing
+(<+>) :: Maybe Path -> Maybe Segment -> Maybe Path
+(<+>) (Just path) (Just segment) =
+  if end path == startNode
+  then do
+    newPathNodesMap <- IM.insert startNodeId startNode (pathNodesMap path) >>= IM.insert endNodeId endNode
+    newPathRelsMap <- IM.insert relId rel $ pathRelationshipsMap path
+    relIndex <- IM.index relId newPathRelsMap
+    endNodeIndex <- IM.index endNodeId newPathNodesMap
+    return $
+      let relElt = if segmentDirection segment == Just INCOMING then - relIndex else relIndex
+      in MkPath {
+        pathNodesMap = newPathNodesMap,
+        pathRelationshipsMap = newPathRelsMap,
+        pathElements = V.snoc (V.snoc (pathElements path) relElt) endNodeIndex
+      }
+  else Nothing
+  where
+    startNodeId = nodeId startNode
+    startNode = start segment
+    endNodeId = nodeId endNode
+    endNode = end segment
+    relId = segmentRelationshipId segment
+    rel = segmentRelationship segment
 (<+>) _ _ = Nothing
 
-instance Monoid (Maybe PathView) where
+pathLength :: Path -> Int
+pathLength path = div (V.length $ pathElements path) 2
+
+pathNodes :: Path -> V.Vector Node
+pathNodes path = V.map nodeAtIndex $ V.ifilter nodeIndices $ pathElements path
+  where
+    nodeAtIndex idx = pathNodesMap path IM.! idx
+    nodeIndices idx _ = mod idx 2 == 1
+
+pathRelationships :: Path -> V.Vector Relationship
+pathRelationships path = V.map relAtIndex $ V.ifilter relIndices $ pathElements path
+  where
+    relAtIndex idx = pathRelationshipsMap path IM.! idx
+    relIndices idx _ = mod idx 2 == 0
+
+pathSegment :: Int -> Path -> Maybe Segment
+pathSegment i path =
+  if i < 0 || i >= len
+  then Nothing
+  else Just MkSegment {
+    segmentDirection =
+      if startNodeId == endNodeId then Nothing
+      else Just (if startNodeId == relationshipStartNodeId rel then OUTGOING else INCOMING),
+    segmentRelationshipId = relationshipId rel,
+    segmentRelationshipType = relationshipType rel,
+    segmentStartNode = startNode,
+    segmentEndNode = endNode,
+    segmentRelationshipProperties = relationshipProperties rel
+  }
+  where
+    len = pathLength path
+    idx = i * 2
+    elts = pathElements path
+    nodes = pathNodesMap path
+    startNode = nodes IM.! (if i == 0 then 0 else elts V.! (idx - 1))
+    startNodeId = nodeId startNode
+    endNode = nodes IM.! (elts V.! (idx + 1))
+    endNodeId = nodeId endNode
+    rels = pathRelationshipsMap path
+    rel = rels IM.! (elts V.! idx)
+
+pathSegments :: Path -> [Segment]
+pathSegments path = map fromJust $ pathSegments_ path
+
+pathSegments_ :: Path -> [Maybe Segment]
+pathSegments_ path =
+  if lst == 0
+    then []
+    else map segment [0..(lst - 1)]
+  where
+    lst = pathLength path
+    segment i = pathSegment i path
+
+(<++>) :: Maybe Path -> Maybe Path -> Maybe Path
+(<++>) Nothing Nothing = Nothing
+(<++>) optPath Nothing = optPath
+(<++>) Nothing optPath = optPath
+(<++>) optPath (Just path) = foldl (<+>) optPath $ pathSegments_ path
+
+instance Monoid (Maybe Path) where
   mempty = Nothing
-  Just (MkPathView lStart lSteps) `mappend` Just (MkPathView rStart rSteps) =
-    if lEnd == rStart
-      then Just (MkPathView lStart (V.concat [lSteps, rSteps]))
-      else Nothing
-      where lEnd = stepDestination $ V.last lSteps
-  _ `mappend` _ = Nothing
+  mappend = (<++>)
 
-pathStartNode :: PathView -> NodeView
-pathStartNode (MkPathView startNode _) = startNode
+class Directed a where
+  type Anchor a
+  start :: a -> Anchor a
+  end :: a -> Anchor a
 
-pathStartNodeId :: PathView -> Id
-pathStartNodeId = nodeId . pathStartNode
+instance Directed Relationship where
+  type Anchor Relationship = Id
+  start = relationshipStartNodeId
+  end = relationshipEndNodeId
 
-pathSteps :: PathView -> V.Vector StepView
-pathSteps (MkPathView _ steps) = steps
+instance Directed Segment where
+  type Anchor Segment = Node
+  start = segmentStartNode
+  end = segmentEndNode
 
-pathEndNode :: PathView -> NodeView
-pathEndNode (MkPathView start steps) =
-  if V.null steps
-    then start
-    else stepDestination $ V.last steps
+instance Directed Path where
+  type Anchor Path = Node
+  start path = pathNodesMap path IM.! 0
+  end path = pathNodesMap path IM.! (if V.null elts then 0 else V.last elts)
+             where elts = pathElements path
 
-pathEndNodeId :: PathView -> Id
-pathEndNodeId = nodeId . pathEndNode
+class Invertible a where
+  inverse :: a -> a
 
-pathNodes :: PathView -> V.Vector NodeView
-pathNodes (MkPathView start steps) = V.cons start $ V.map stepDestination steps
+instance Invertible a => Invertible (Maybe a) where
+  inverse = fmap inverse
 
-pathNodeIds :: PathView -> V.Vector Id
-pathNodeIds (MkPathView start steps) = V.cons (nodeId start) $ V.map stepDestinationId steps
+instance Invertible Direction where
+  inverse INCOMING = OUTGOING
+  inverse OUTGOING = INCOMING
 
-pathRels :: PathView -> V.Vector RelationshipView
-pathRels (MkPathView _ steps) = V.map stepRelationship steps
+instance Invertible Segment where
+  inverse segment = segment {
+    segmentStartNode = segmentEndNode segment,
+    segmentEndNode = segmentStartNode segment,
+    segmentDirection = inverse $ segmentDirection segment
+  }
 
-pathRelIds :: PathView -> V.Vector Id
-pathRelIds (MkPathView _ steps) = V.map stepRelationshipId steps
+-- TODO instance invertible Path
 
 newtype LazyMap a = LazyMap { unLazyMap :: LM.Map T.Text a } deriving (Eq, Show)
 
@@ -222,8 +397,9 @@ packValue (LIST vs)  = AVector $ V.map pack vs
 packValue (MAP m)    = AMap $ M.foldMapWithKey packFlatDynEntryM m
 packValue (NODE n)   = pack n
 packValue (RELATIONSHIP rel) = pack rel
+packValue (PATH path) = pack path
 
-pack :: Codec a  => a -> Atom
+pack :: Codec a => a -> Atom
 pack = unEncode . encodeValue
 
 packEntry :: Codec v => (k, v) -> (k, Atom)
@@ -247,6 +423,7 @@ unpackValue (AMap vs)         = MAP $ V.foldl insertUnpackedDynEntry M.empty vs
 unpackValue (AStreamedMap vs) = MAP $ foldl insertUnpackedDynEntry M.empty vs
 unpackValue (struct @ (AStructure sig _)) | sig == _NODE = fromJust $ NODE <$> unpack struct
 unpackValue (struct @ (AStructure sig _)) | sig == _RELATIONSHIP = fromJust $ RELATIONSHIP <$> unpack struct
+unpackValue (struct @ (AStructure sig _)) | sig == _PATH = fromJust $ PATH <$> unpack struct
 unpackValue _ = error "Structure with unsupported signature cannot be unpacked to a PTS Value"
 
 unpack :: Codec a => Atom -> Maybe a
@@ -396,7 +573,7 @@ instance Codec a => Codec (LazyMap (M.Map T.Text a)) where
   decodeValue (Encode (AStreamedMap vs)) = LazyMap <$> foldM lazyInsertUnpackedEntry LM.empty vs
   decodeValue _ = Nothing
 
-instance Codec NodeView where
+instance Codec Node where
   toValue = NODE
   fromValue (NODE n) = Just n
   fromValue _ = Nothing
@@ -409,10 +586,10 @@ instance Codec NodeView where
       nId <- args V.!? 0 >>= unpack
       nLabels <- args V.!? 1 >>= unpack
       nProperties <- args V.!? 2 >>= unpack
-      return MkNodeView { nodeId = nId, nodeLabels = nLabels, nodeProperties = nProperties }
+      return MkNode { nodeId = nId, nodeLabels = nLabels, nodeProperties = nProperties }
   decodeValue _ = Nothing
 
-instance Codec RelationshipView where
+instance Codec Relationship where
   toValue = RELATIONSHIP
   fromValue (RELATIONSHIP rel) = Just rel
   fromValue _ = Nothing
@@ -429,7 +606,7 @@ instance Codec RelationshipView where
       relEndNodeId <- args V.!? 2 >>= unpack
       relType <- args V.!? 3 >>= unpack
       relProperties <- args V.!? 4 >>= unpack
-      return MkRelationshipView {
+      return MkRelationship {
         relationshipId = relId,
         relationshipStartNodeId = relStartNodeId,
         relationshipEndNodeId = relEndNodeId,
@@ -437,3 +614,38 @@ instance Codec RelationshipView where
         relationshipProperties = relProperties
       }
   decodeValue _ = Nothing
+
+instance Codec Path where
+  toValue = PATH
+  fromValue (PATH path) = Just path
+  fromValue _ = Nothing
+  encodeValue path = Encode $
+    AStructure _PATH $ V.cons (pack $ IM.values $ pathNodesMap path)
+                     $ V.cons (AVector $ V.map packAsUnboundRelationship $ IM.values $ pathRelationshipsMap path)
+                     $ V.singleton (pack $ pathElements path)
+  -- decodeValue (Encode (AStructure sig args)) | sig == _PATH =
+  --   do
+  --     pathNodes <- args V.!? 0 >>= unpack
+  --     unboundRels <- args V.!? 1 >>= unpack
+  --     elts <- args V.!? 2 >>= unpack
+  --     unpackPath pathNodes unboundRels elts
+  -- decodeValue _ = Nothing
+
+data UnboundRelationship = UnboundRelationship {
+  unboundRelationshipId         :: Id,
+  unboundRelationshipType       :: T.Text,
+  unboundRelationshipProperties :: M.Map T.Text DynValue
+}
+
+-- instance Codec UnboundRelationship where
+--   toValue =
+
+packAsUnboundRelationship :: Relationship -> Atom
+packAsUnboundRelationship rel =
+ AStructure _UNBOUND_RELATIONSHIP
+   $ V.cons (pack $ relationshipId rel)
+   $ V.cons (pack $ relationshipType rel)
+   $ V.singleton (pack $ relationshipProperties rel)
+
+-- unpackPath :: V.Vector Node -> V.Vector Atom -> V.Vector Int -> Maybe Path
+-- unpackPath nodes unboundRels elts = undefined
