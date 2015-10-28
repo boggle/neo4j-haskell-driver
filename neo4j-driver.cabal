@@ -29,6 +29,7 @@ library
                     , Codec.Packstream.Atom
                     , Codec.Bolt.Internal.IndexedMap
                     , Codec.Bolt.PTS
+                    , Codec.Bolt.PGM
 
   build-depends:      base                >= 4.7 && < 5
                     , bytestring          >= 0.10.6
@@ -42,6 +43,9 @@ library
   default-extensions:   LambdaCase
                       , ExistentialQuantification
                       , UnicodeSyntax
+                      , TypeFamilies
+                      , StandaloneDeriving
+                      , FlexibleInstances                                
 
   ghc-options:        -Wall -O2
   ghc-prof-options:   -prof -auto-all -caf-all
