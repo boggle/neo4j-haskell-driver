@@ -32,7 +32,6 @@ import qualified Codec.Bolt.Internal.IndexedMap as IM
 import           Data.Int
 import           Data.Maybe
 import qualified Data.Map                       as M
-import qualified Data.Set                       as S
 import qualified Data.Text                      as T
 import qualified Data.Vector                    as V
 
@@ -44,7 +43,8 @@ type Properties v = M.Map T.Text v
 
 data Node v = Node {
   nodeId         :: Id,
-  nodeLabels     :: S.Set Label,
+  -- TODO
+  nodeLabels     :: V.Vector T.Text,
   nodeProperties :: Properties v
 }
 
