@@ -15,7 +15,7 @@ module Codec.Bolt.PTS(
 
 where
 
-import Codec.Bolt.PGM
+import           Codec.Bolt.PGM
 import qualified Codec.Bolt.Internal.IndexedMap as IM
 import           Codec.Packstream.Atom
 import           Codec.Packstream.Signature

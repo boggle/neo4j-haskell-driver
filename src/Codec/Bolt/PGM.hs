@@ -29,17 +29,35 @@ module Codec.Bolt.PGM (
 where
 
 import qualified Codec.Bolt.Internal.IndexedMap as IM
+import           Codec.Bolt.Atomic
+import           Codec.Packstream.Atom
+import           Codec.Packstream.Signature
 import           Data.Int
 import           Data.Maybe
-import qualified Data.Map                       as M
 import qualified Data.Text                      as T
 import qualified Data.Vector                    as V
 
 newtype Id = Id { getId :: Int64 } deriving (Eq, Show, Ord)
+
+instance Atomic Id where
+  atomize = AInt64 . getId
+  construct x = Id <$> construct x
+
+type Properties v = Map v
+
 newtype Label = Label { labelName :: T.Text } deriving (Eq, Show, Ord)
+
+instance Atomic Label where
+  atomize = AText . labelName
+  construct (AText txt) = Just $ Label txt
+  construct _ = Nothing
+
 newtype RelationshipType = RelationshipType { relationshipTypeName :: T.Text } deriving (Eq, Show, Ord)
 
-type Properties v = M.Map T.Text v
+instance Atomic RelationshipType where
+  atomize = AText . relationshipTypeName
+  construct (AText txt) = Just $ RelationshipType txt
+  construct _ = Nothing
 
 data Node v = Node {
   nodeId         :: Id,
@@ -52,6 +70,19 @@ deriving instance Eq v => Eq (Node v)
 deriving instance Ord v => Ord (Node v)
 deriving instance Show v => Show (Node v)
 
+instance (Atomic v) => Atomic (Node v) where
+  atomize n = AStructure _NODE $ V.cons (atomize $ nodeId n)
+                               $ V.cons (atomize $ nodeLabels n)
+                               $ V.singleton (atomize $ nodeProperties n)
+  construct (AStructure sig args) | sig == _NODE =
+    do
+      nId <- args V.!? 0 >>= construct
+      nLabels <- args V.!? 1 >>= construct
+      nProperties <- args V.!? 2 >>= construct
+      return Node { nodeId = nId, nodeLabels = nLabels, nodeProperties = nProperties }
+  construct _ = Nothing
+
+
 data Relationship v = Relationship {
     relationshipId          :: Id,
     relationshipType        :: RelationshipType,
@@ -63,6 +94,28 @@ data Relationship v = Relationship {
 deriving instance Eq v => Eq (Relationship v)
 deriving instance Ord v => Ord (Relationship v)
 deriving instance Show v => Show (Relationship v)
+
+instance Atomic v => Atomic (Relationship v) where
+  atomize rel = AStructure _RELATIONSHIP $ V.cons (atomize $ relationshipId rel)
+                                         $ V.cons (atomize $ relationshipStartNodeId rel)
+                                         $ V.cons (atomize $ relationshipEndNodeId rel)
+                                         $ V.cons (atomize $ relationshipTypeName $ relationshipType rel)
+                                         $ V.singleton (atomize $ relationshipProperties rel)
+  construct (AStructure sig args) | sig == _RELATIONSHIP =
+    do
+      relId <- args V.!? 0 >>= construct
+      relStartNodeId <- args V.!? 1 >>= construct
+      relEndNodeId <- args V.!? 2 >>= construct
+      relTypeName <- args V.!? 3 >>= construct
+      relProperties <- args V.!? 4 >>= construct
+      return Relationship {
+        relationshipId = relId,
+        relationshipStartNodeId = relStartNodeId,
+        relationshipEndNodeId = relEndNodeId,
+        relationshipType = RelationshipType relTypeName,
+        relationshipProperties = relProperties
+      }
+  construct _ = Nothing
 
 class Entity a where
   type PropertyValue a
@@ -311,3 +364,38 @@ instance Invertible (Segment v) where
   }
 
 -- TODO instance invertible Path
+
+-- -- instance Codec Path where
+-- --   toValue = PATH
+-- --   fromValue (PATH path) = Just path
+-- --   fromValue _ = Nothing
+-- --   encodeValue path = Encode $
+-- --     AStructure _PATH $ V.cons (pack $ IM.values $ pathNodesMap path)
+-- --                      $ V.cons (AVector $ V.map packAsUnboundRelationship $ IM.values $ pathRelationshipsMap path)
+-- --                      $ V.singleton (pack $ pathElements path)
+--   -- decodeValue (Encode (AStructure sig args)) | sig == _PATH =
+--   --   do
+--   --     pathNodes <- args V.!? 0 >>= unpack
+--   --     unboundRels <- args V.!? 1 >>= unpack
+--   --     elts <- args V.!? 2 >>= unpack
+--   --     unpackPath pathNodes unboundRels elts
+--   -- decodeValue _ = Nothing
+--
+-- data UnboundRelationship = UnboundRelationship {
+--   unboundRelationshipId         :: Id,
+--   unboundRelationshipType       :: T.Text,
+--   unboundRelationshipProperties :: M.Map T.Text DynValue
+-- }
+--
+-- -- instance Codec UnboundRelationship where
+-- --   toValue =
+--
+-- -- packAsUnboundRelationship :: Relationship DynValue -> Atom
+-- -- packAsUnboundRelationship rel =
+-- --  AStructure _UNBOUND_RELATIONSHIP
+-- --    $ V.cons (pack $ relationshipId rel)
+-- --    $ V.cons (pack $ relationshipType rel)
+-- --    $ V.singleton (pack $ relationshipProperties rel)
+-- --
+-- -- unpackPath :: V.Vector Node -> V.Vector Atom -> V.Vector Int -> Maybe Path
+-- -- unpackPath nodes unboundRels elts = undefined

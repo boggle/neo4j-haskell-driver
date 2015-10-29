@@ -28,8 +28,9 @@ library
                     , Codec.Packstream.Coding
                     , Codec.Packstream.Atom
                     , Codec.Bolt.Internal.IndexedMap
-                    , Codec.Bolt.PTS
+                    , Codec.Bolt.Atomic
                     , Codec.Bolt.PGM
+                    , Codec.Bolt.PTS
 
   build-depends:      base                >= 4.7 && < 5
                     , bytestring          >= 0.10.6
@@ -45,7 +46,7 @@ library
                       , UnicodeSyntax
                       , TypeFamilies
                       , StandaloneDeriving
-                      , FlexibleInstances                                
+                      , FlexibleInstances
 
   ghc-options:        -Wall -O2
   ghc-prof-options:   -prof -auto-all -caf-all

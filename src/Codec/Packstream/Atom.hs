@@ -1,6 +1,5 @@
 module Codec.Packstream.Atom(
-  Atom(..),
-  Atomic(..)
+  Atom(..)
 ) where
 
 import           Control.Applicative
@@ -63,11 +62,3 @@ instance Binary Atom where
     where
       mkStructure (sig, vec) = AStructure sig vec
       getEntry = Coding.getEntry Coding.getText get
-
-class Atomic a where
-  atomize :: a -> Atom
-  construct :: Atom -> Maybe a
-
-instance Atomic Atom where
-  atomize = id
-  construct = Just
