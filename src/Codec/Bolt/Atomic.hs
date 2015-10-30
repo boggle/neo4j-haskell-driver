@@ -1,8 +1,7 @@
 module Codec.Bolt.Atomic(
   Atomic(..),
   Map,
-  LazyMap,
-  lazyMap
+  LazyMap(..)
 )
 
 where
@@ -11,19 +10,24 @@ import           Codec.Packstream.Atom
 import           Control.Applicative
 import           Control.Monad
 import           Data.Int
-import qualified Data.Text             as T
+import           Data.Text             (Text)
 import qualified Data.Vector           as V
-import qualified Data.Map               as M
-import qualified Data.Map.Lazy          as LM
+import qualified Data.Map              as M
+import qualified Data.Map.Lazy         as LM
 
-type Map v = M.Map T.Text v
+type Map v = M.Map Text v
 
-newtype LazyMap v = LazyMap { lazyMap :: LM.Map T.Text v }
+newtype LazyMap v = LazyMap { lazyMap :: LM.Map Text v }
 
 deriving instance (Eq a) => Eq (LazyMap a)
 deriving instance (Ord a) => Ord (LazyMap a)
 deriving instance (Show a) => Show (LazyMap a)
 
+instance Monoid (LazyMap a) where
+  mempty = LazyMap mempty
+  (LazyMap l) `mappend` (LazyMap r) = LazyMap $ l `mappend` r
+
+-- LAW: construct $ atomize v = Just v
 class Atomic a where
   atomize :: a -> Atom
   construct :: Atom -> Maybe a
@@ -51,14 +55,14 @@ instance Atomic Bool where
   construct (ABool b) = Just b
   construct _ = Nothing
 
+instance Atomic Text where
+  atomize = AText
+  construct (AText t) = Just t
+  construct _ = Nothing
+
 instance Atomic Double where
   atomize = ADouble
   construct (ADouble d) = Just d
-  construct _ = Nothing
-
-instance Atomic T.Text where
-  atomize = AText
-  construct (AText t) = Just t
   construct _ = Nothing
 
 instance Atomic Int64 where
@@ -153,20 +157,20 @@ instance Atomic v => Atomic (Map v) where
   construct (AStreamedMap vs) = foldM insertAtomizedMapEntry M.empty vs
   construct _ = Nothing
 
-instance Atomic v => Atomic (LazyMap (M.Map T.Text v)) where
-  atomize (LazyMap m) = AStreamedMap $ map atomizeMapEntry $ LM.toList m
+instance Atomic v => Atomic (LazyMap v) where
+  atomize m = AStreamedMap $ map atomizeMapEntry $ LM.toList $ lazyMap m
   construct (AMap vs) = LazyMap <$> V.foldM lazyInsertAtomizedMapEntry LM.empty vs
   construct (AStreamedMap vs) = LazyMap <$> foldM lazyInsertAtomizedMapEntry LM.empty vs
   construct _ = Nothing
 
-atomizeMapEntry :: Atomic v => (T.Text, v) -> (T.Text, Atom)
+atomizeMapEntry :: Atomic v => (Text, v) -> (Text, Atom)
 atomizeMapEntry (k, v) = (k, atomize v)
 
-constructMapEntry :: Atomic v => (T.Text, Atom) -> Maybe (T.Text, v)
+constructMapEntry :: Atomic v => (Text, Atom) -> Maybe (Text, v)
 constructMapEntry (k, atom) = (,) k <$> construct atom
 
-insertAtomizedMapEntry :: Atomic v => Map v -> (T.Text, Atom) -> Maybe (Map v)
+insertAtomizedMapEntry :: Atomic v => Map v -> (Text, Atom) -> Maybe (Map v)
 insertAtomizedMapEntry m e = insertEntry <$> constructMapEntry e where insertEntry (k, v) = M.insert k v m
 
-lazyInsertAtomizedMapEntry :: Atomic v => Map v -> (T.Text, Atom) -> Maybe (Map v)
+lazyInsertAtomizedMapEntry :: Atomic v => Map v -> (Text, Atom) -> Maybe (Map v)
 lazyInsertAtomizedMapEntry m e = insertEntry <$> constructMapEntry e where insertEntry (k, v) = LM.insert k v m
