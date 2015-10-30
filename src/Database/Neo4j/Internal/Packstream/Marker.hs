@@ -1,4 +1,4 @@
-module Codec.Packstream.Marker (
+module Database.Neo4j.Internal.Packstream.Marker (
   Marker,
   allMarkers,
   markerByte,

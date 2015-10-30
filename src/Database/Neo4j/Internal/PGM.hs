@@ -1,11 +1,12 @@
-module Codec.Bolt.PGM (
+module Database.Neo4j.Internal.PGM (
   Id(..),
   Label(..),
   RelationshipType(..),
   Properties,
   Node(..),
   Relationship(..),
-  Direction,
+  Entity(..),
+  Direction(..),
   Segment(..),
   segmentRelationship,
   Step,
@@ -22,26 +23,30 @@ module Codec.Bolt.PGM (
   pathRelationships,
   pathSegment,
   pathSegments,
+  (<++>),
   Directed(..),
   Invertible(..)
 )
 
 where
 
-import qualified Codec.Bolt.Internal.IndexedMap as IM
-import           Codec.Bolt.Atomic
-import           Codec.Packstream.Atom
-import           Codec.Packstream.Signature
+import qualified Database.Neo4j.Internal.Util.IndexedMap      as IM
+import           Database.Neo4j.Internal.ValueCodec
+import           Database.Neo4j.Internal.Packstream.Atomic
+import           Database.Neo4j.Internal.Packstream.Atom
+import           Database.Neo4j.Internal.Packstream.Signature
 import           Data.Int
 import           Data.Maybe
-import qualified Data.Text                      as T
-import qualified Data.Vector                    as V
+import qualified Data.Text                                    as T
+import qualified Data.Vector                                  as V
 
 newtype Id = Id { getId :: Int64 } deriving (Eq, Show, Ord)
 
 instance Atomic Id where
   atomize = AInt64 . getId
   construct x = Id <$> construct x
+
+instance ValueCodec Id where
 
 type Properties v = Map v
 
@@ -82,6 +87,7 @@ instance (Atomic v) => Atomic (Node v) where
       return Node { nodeId = nId, nodeLabels = nLabels, nodeProperties = nProperties }
   construct _ = Nothing
 
+instance ValueCodec v => ValueCodec (Node v) where
 
 data Relationship v = Relationship {
     relationshipId          :: Id,
@@ -116,6 +122,8 @@ instance Atomic v => Atomic (Relationship v) where
         relationshipProperties = relProperties
       }
   construct _ = Nothing
+
+instance ValueCodec v => ValueCodec (Relationship v) where
 
 class Entity a where
   type PropertyValue a
@@ -226,6 +234,61 @@ data Path v = MkPath {
 deriving instance Eq v => Eq (Path v)
 deriving instance Ord v => Ord (Path v)
 deriving instance Show v => Show (Path v)
+
+instance Atomic v => Atomic (Path v) where
+  atomize MkPath {
+    pathNodesMap = nodesMap,
+    pathRelationshipsMap = relsMap,
+    pathElements = elts
+  } = AStructure _PATH
+      $ V.cons (atomize $ IM.values nodesMap)
+      $ V.cons (AVector $ V.map atomizeUnboundRelationship $ IM.values relsMap)
+      $ V.singleton (atomize elts)
+      where
+        atomizeUnboundRelationship rel = atomize UnboundRelationship {
+          unboundRelationshipId = relationshipId rel,
+          unboundRelationshipType = relationshipType rel,
+          unboundRelationshipProperties = relationshipProperties rel
+        }
+  construct (AStructure sig args) | sig == _PATH = do
+    nodes <- construct $ args V.! 0 :: Maybe (V.Vector (Node v))
+    unboundRels <- construct $ args V.! 1 :: Maybe (V.Vector (UnboundRelationship v))
+    elts <- construct $ args V.! 2 :: Maybe (V.Vector Int)
+    -- TODO construct path
+    return MkPath {
+      pathNodesMap = undefined,
+      pathRelationshipsMap = undefined,
+      pathElements = elts
+    }
+  construct _ = Nothing
+
+instance ValueCodec v => ValueCodec (Path v) where
+
+data UnboundRelationship v = UnboundRelationship {
+  unboundRelationshipId         :: Id,
+  unboundRelationshipType       :: RelationshipType,
+  unboundRelationshipProperties :: Properties v
+}
+
+instance Atomic v => Atomic (UnboundRelationship v) where
+  atomize UnboundRelationship {
+    unboundRelationshipId = relId,
+    unboundRelationshipType = relType,
+    unboundRelationshipProperties = relProps
+  } =  AStructure _UNBOUND_RELATIONSHIP
+       $ V.cons (atomize relId)
+       $ V.cons (atomize relType)
+       $ V.singleton (atomize relProps)
+  construct (AStructure sig elts) | sig == _UNBOUND_RELATIONSHIP = do
+    relId <- construct $ elts V.! 0
+    relType <- construct $ elts V.! 1
+    relProps <- construct $ elts V.! 2
+    return UnboundRelationship {
+      unboundRelationshipId = relId,
+      unboundRelationshipType = relType,
+      unboundRelationshipProperties = relProps
+    }
+  construct _ = Nothing
 
 singleNodePath :: Node v -> Path v
 singleNodePath startNode = MkPath {
@@ -364,38 +427,3 @@ instance Invertible (Segment v) where
   }
 
 -- TODO instance invertible Path
-
--- -- instance Codec Path where
--- --   toValue = PATH
--- --   fromValue (PATH path) = Just path
--- --   fromValue _ = Nothing
--- --   encodeValue path = Encode $
--- --     AStructure _PATH $ V.cons (pack $ IM.values $ pathNodesMap path)
--- --                      $ V.cons (AVector $ V.map packAsUnboundRelationship $ IM.values $ pathRelationshipsMap path)
--- --                      $ V.singleton (pack $ pathElements path)
---   -- decodeValue (Encode (AStructure sig args)) | sig == _PATH =
---   --   do
---   --     pathNodes <- args V.!? 0 >>= unpack
---   --     unboundRels <- args V.!? 1 >>= unpack
---   --     elts <- args V.!? 2 >>= unpack
---   --     unpackPath pathNodes unboundRels elts
---   -- decodeValue _ = Nothing
---
--- data UnboundRelationship = UnboundRelationship {
---   unboundRelationshipId         :: Id,
---   unboundRelationshipType       :: T.Text,
---   unboundRelationshipProperties :: M.Map T.Text DynValue
--- }
---
--- -- instance Codec UnboundRelationship where
--- --   toValue =
---
--- -- packAsUnboundRelationship :: Relationship DynValue -> Atom
--- -- packAsUnboundRelationship rel =
--- --  AStructure _UNBOUND_RELATIONSHIP
--- --    $ V.cons (pack $ relationshipId rel)
--- --    $ V.cons (pack $ relationshipType rel)
--- --    $ V.singleton (pack $ relationshipProperties rel)
--- --
--- -- unpackPath :: V.Vector Node -> V.Vector Atom -> V.Vector Int -> Maybe Path
--- -- unpackPath nodes unboundRels elts = undefined

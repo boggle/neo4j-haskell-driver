@@ -1,4 +1,4 @@
-module Codec.Packstream.Coding(
+module Database.Neo4j.Internal.Packstream.Coding(
   putNull,
   getNull,
   putBool,
@@ -32,9 +32,9 @@ module Codec.Packstream.Coding(
   getStructure
 ) where
 
-import           Codec.Packstream.Expect
-import           Codec.Packstream.Marker
-import           Codec.Packstream.Signature
+import           Database.Neo4j.Internal.Util.Expect
+import           Database.Neo4j.Internal.Packstream.Marker
+import           Database.Neo4j.Internal.Packstream.Signature
 import           Control.Applicative
 import           Control.Monad
 import           Data.Binary             (put, get)

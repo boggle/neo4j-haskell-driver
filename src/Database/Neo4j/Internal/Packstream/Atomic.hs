@@ -1,31 +1,27 @@
-module Codec.Bolt.Atomic(
+module Database.Neo4j.Internal.Packstream.Atomic(
   Atomic(..),
   Map,
-  LazyMap(..)
+  Lazy(..)
 )
 
 where
 
-import           Codec.Packstream.Atom
+import           Database.Neo4j.Internal.Packstream.Atom
 import           Control.Applicative
 import           Control.Monad
 import           Data.Int
-import           Data.Text             (Text)
-import qualified Data.Vector           as V
-import qualified Data.Map              as M
-import qualified Data.Map.Lazy         as LM
+import           Data.Text                               (Text)
+import qualified Data.Vector                             as V
+import qualified Data.Map                                as M
+import qualified Data.Map.Lazy                           as LM
 
 type Map v = M.Map Text v
 
-newtype LazyMap v = LazyMap { lazyMap :: LM.Map Text v }
+newtype Lazy l = Lazy { lazy :: l }
 
-deriving instance (Eq a) => Eq (LazyMap a)
-deriving instance (Ord a) => Ord (LazyMap a)
-deriving instance (Show a) => Show (LazyMap a)
-
-instance Monoid (LazyMap a) where
-  mempty = LazyMap mempty
-  (LazyMap l) `mappend` (LazyMap r) = LazyMap $ l `mappend` r
+deriving instance (Eq a) => Eq (Lazy a)
+deriving instance (Ord a) => Ord (Lazy a)
+deriving instance (Show a) => Show (Lazy a)
 
 -- LAW: construct $ atomize v = Just v
 class Atomic a where
@@ -157,10 +153,10 @@ instance Atomic v => Atomic (Map v) where
   construct (AStreamedMap vs) = foldM insertAtomizedMapEntry M.empty vs
   construct _ = Nothing
 
-instance Atomic v => Atomic (LazyMap v) where
-  atomize m = AStreamedMap $ map atomizeMapEntry $ LM.toList $ lazyMap m
-  construct (AMap vs) = LazyMap <$> V.foldM lazyInsertAtomizedMapEntry LM.empty vs
-  construct (AStreamedMap vs) = LazyMap <$> foldM lazyInsertAtomizedMapEntry LM.empty vs
+instance Atomic v => Atomic (Lazy (LM.Map Text v)) where
+  atomize m = AStreamedMap $ map atomizeMapEntry $ LM.toList $ lazy m
+  construct (AMap vs) = Lazy <$> V.foldM lazyInsertAtomizedMapEntry LM.empty vs
+  construct (AStreamedMap vs) = Lazy <$> foldM lazyInsertAtomizedMapEntry LM.empty vs
   construct _ = Nothing
 
 atomizeMapEntry :: Atomic v => (Text, v) -> (Text, Atom)

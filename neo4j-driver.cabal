@@ -20,17 +20,21 @@ extra-source-files:
 library
   hs-source-dirs:     src
 
-  exposed-modules:    Codec.Packstream.ShowBytes
-                    , Codec.Packstream.Expect
-                    , Codec.Packstream.Table
-                    , Codec.Packstream.Marker
-                    , Codec.Packstream.Signature
-                    , Codec.Packstream.Coding
-                    , Codec.Packstream.Atom
-                    , Codec.Bolt.Internal.IndexedMap
-                    , Codec.Bolt.Atomic
-                    , Codec.Bolt.PGM
-                    , Codec.Bolt.PTS
+  exposed-modules:    Database.Neo4j.Value
+                    , Database.Neo4j.Util.ShowBytes
+                    , Database.Neo4j.Util.BinaryValue
+                    , Database.Neo4j.Internal.PGM
+                    , Database.Neo4j.Internal.ValueCodec
+                    , Database.Neo4j.Internal.Bolt.Message
+                    , Database.Neo4j.Internal.Packstream.Atomic
+                    , Database.Neo4j.Internal.Packstream.Atom
+                    , Database.Neo4j.Internal.Packstream.Signature
+                    , Database.Neo4j.Internal.Packstream.Coding
+                    , Database.Neo4j.Internal.Packstream.Marker
+
+  other-modules:      Database.Neo4j.Internal.Util.Expect
+                    , Database.Neo4j.Internal.Util.Table
+                    , Database.Neo4j.Internal.Util.IndexedMap
 
   build-depends:      base                >= 4.7 && < 5
                     , bytestring          >= 0.10.6
@@ -42,11 +46,12 @@ library
 
   default-language:     Haskell2010
   default-extensions:   LambdaCase
-                      , ExistentialQuantification
+                      , GADTs
                       , UnicodeSyntax
                       , TypeFamilies
                       , StandaloneDeriving
                       , FlexibleInstances
+                      , ScopedTypeVariables
 
   ghc-options:        -Wall -O2
   ghc-prof-options:   -prof -auto-all -caf-all

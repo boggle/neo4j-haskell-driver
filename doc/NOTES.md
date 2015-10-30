@@ -31,4 +31,4 @@ Top-Level Namespace is Database.Neo4j
 o Value: All user relevant types
 
 o Internal.Packstream: Pack stream serialization
-o Internal.Utl: Utility classes
+o Internal.Util: Utility classes

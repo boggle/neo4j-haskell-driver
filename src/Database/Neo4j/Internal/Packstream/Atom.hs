@@ -1,4 +1,4 @@
-module Codec.Packstream.Atom(
+module Database.Neo4j.Internal.Packstream.Atom(
   Atom(..)
 ) where
 
@@ -9,8 +9,8 @@ import           Data.Maybe
 import qualified Data.Text               as T
 import qualified Data.Vector             as V
 
-import qualified Codec.Packstream.Coding as Coding
-import           Codec.Packstream.Signature
+import qualified Database.Neo4j.Internal.Packstream.Coding as Coding
+import           Database.Neo4j.Internal.Packstream.Signature
 
 data Atom = ANull
           | ABool                     !Bool

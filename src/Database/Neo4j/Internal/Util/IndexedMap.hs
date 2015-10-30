@@ -1,4 +1,4 @@
-module Codec.Bolt.Internal.IndexedMap(
+module Database.Neo4j.Internal.Util.IndexedMap(
   IndexedMap,
   empty,
   singleton,

@@ -1,4 +1,4 @@
-module Codec.Packstream.Expect(
+module Database.Neo4j.Internal.Util.Expect(
   expect
 ) where
 

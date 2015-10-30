@@ -1,4 +1,4 @@
-module Codec.Packstream.Table(
+module Database.Neo4j.Internal.Util.Table(
   Table,
   mkCase,
   compile,

@@ -1,4 +1,4 @@
-module Codec.Packstream.Signature(
+module Database.Neo4j.Internal.Packstream.Signature(
   Signature,
   signature,
   signatureByte,
@@ -7,6 +7,7 @@ module Codec.Packstream.Signature(
   _NODE,
   _PATH,
   _RELATIONSHIP,
+  _INIT_MESSAGE,
   _UNBOUND_RELATIONSHIP,
   _ACK_FAILURE_MESSAGE,
   _RUN_MESSAGE,
@@ -63,11 +64,14 @@ _RELATIONSHIP = MkSignature 0x52
 _UNBOUND_RELATIONSHIP :: Signature
 _UNBOUND_RELATIONSHIP = MkSignature 0x72
 
-_ACK_FAILURE_MESSAGE :: Signature
-_ACK_FAILURE_MESSAGE = MkSignature 0x0f
+_INIT_MESSAGE :: Signature
+_INIT_MESSAGE = MkSignature 0x01
 
 _RUN_MESSAGE :: Signature
 _RUN_MESSAGE = MkSignature 0x10
+
+_ACK_FAILURE_MESSAGE :: Signature
+_ACK_FAILURE_MESSAGE = MkSignature 0x0f
 
 _DISCARD_ALL_MESSAGE :: Signature
 _DISCARD_ALL_MESSAGE = MkSignature 0x2f

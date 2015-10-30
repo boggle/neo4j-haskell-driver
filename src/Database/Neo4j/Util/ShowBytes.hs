@@ -1,4 +1,4 @@
-module Codec.Packstream.ShowBytes (
+module Database.Neo4j.Util.ShowBytes (
   showBytes
 ) where
 
