@@ -21,22 +21,23 @@ library
   hs-source-dirs:     src
 
   exposed-modules:    Database.Neo4j.Value
-                    , Database.Neo4j.Util.ShowBytes
                     , Database.Neo4j.Util.BinaryValue
-                    , Database.Neo4j.Internal.PGM
+                    , Database.Neo4j.Util.ShowBytes
                     , Database.Neo4j.Internal.ValueCodec
-                    , Database.Neo4j.Internal.Bolt.Message
                     , Database.Neo4j.Internal.Packstream.Atomic
                     , Database.Neo4j.Internal.Packstream.Atom
-                    , Database.Neo4j.Internal.Packstream.Signature
-                    , Database.Neo4j.Internal.Packstream.Coding
-                    , Database.Neo4j.Internal.Packstream.Marker
 
   other-modules:      Database.Neo4j.Internal.Util.Expect
                     , Database.Neo4j.Internal.Util.Table
                     , Database.Neo4j.Internal.Util.IndexedMap
+                    , Database.Neo4j.Internal.Packstream.Signature
+                    , Database.Neo4j.Internal.Packstream.Coding
+                    , Database.Neo4j.Internal.Packstream.Marker
+                    , Database.Neo4j.Internal.PGM
+                    , Database.Neo4j.Internal.Bolt.Message
 
   build-depends:      base                >= 4.7 && < 5
+                    , monad-loops         >= 0.4.3
                     , bytestring          >= 0.10.6
                     , binary              >= 0.7.5
                     , data-binary-ieee754 >= 0.4.4

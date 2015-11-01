@@ -79,7 +79,7 @@ instance (Atomic v) => Atomic (Node v) where
   atomize n = AStructure _NODE $ V.cons (atomize $ nodeId n)
                                $ V.cons (atomize $ nodeLabels n)
                                $ V.singleton (atomize $ nodeProperties n)
-  construct (AStructure sig args) | sig == _NODE =
+  construct (AStructure sig args) | sig == _NODE && V.length args == 3  =
     do
       nId <- args V.!? 0 >>= construct
       nLabels <- args V.!? 1 >>= construct
@@ -107,7 +107,7 @@ instance Atomic v => Atomic (Relationship v) where
                                          $ V.cons (atomize $ relationshipEndNodeId rel)
                                          $ V.cons (atomize $ relationshipTypeName $ relationshipType rel)
                                          $ V.singleton (atomize $ relationshipProperties rel)
-  construct (AStructure sig args) | sig == _RELATIONSHIP =
+  construct (AStructure sig args) | sig == _RELATIONSHIP && V.length args == 5  =
     do
       relId <- args V.!? 0 >>= construct
       relStartNodeId <- args V.!? 1 >>= construct
@@ -174,7 +174,7 @@ instance Atomic v => Atomic (UnboundRelationship v) where
        $ V.cons (atomize relId)
        $ V.cons (atomize relType)
        $ V.singleton (atomize relProps)
-  construct (AStructure sig elts) | sig == _UNBOUND_RELATIONSHIP = do
+  construct (AStructure sig elts) | sig == _UNBOUND_RELATIONSHIP && V.length elts == 3 = do
     relId <- construct $ elts V.! 0
     relType <- construct $ elts V.! 1
     relProps <- construct $ elts V.! 2
@@ -299,7 +299,7 @@ instance Atomic v => Atomic (Path v) where
       $ V.cons (atomize $ IM.values nodesMap)
       $ V.cons (AVector $ V.map atomize $ IM.values relsMap)
       $ V.singleton (atomize elts)
-  construct (AStructure sig args) | sig == _PATH = do
+  construct (AStructure sig args) | sig == _PATH && V.length args == 3 = do
     nodes <- construct $ args V.! 0 :: Maybe (V.Vector (Node v))
     unboundRels <- construct $ args V.! 1 :: Maybe (V.Vector (UnboundRelationship v))
     elts <- construct $ args V.! 2 :: Maybe (V.Vector Int)
