@@ -142,132 +142,27 @@ instance Entity (Relationship v) where
 
 data Direction = INCOMING | OUTGOING deriving (Eq, Show, Ord)
 
-data Segment v = Segment {
-    segmentDirection              :: Maybe Direction,
-    segmentRelationshipId         :: Id,
-    segmentRelationshipType       :: RelationshipType,
-    segmentStartNode              :: Node v,
-    segmentEndNode                :: Node v,
-    segmentRelationshipProperties :: Properties v
-}
+class Invertible a where
+  inverse :: a -> a
 
-deriving instance Eq v => Eq (Segment v)
-deriving instance Ord v => Ord (Segment v)
-deriving instance Show v => Show (Segment v)
+instance Invertible a => Invertible (Maybe a) where
+  inverse = fmap inverse
 
-segmentRelationship :: Segment v -> Relationship v
-segmentRelationship segment =
-  if segmentDirection segment == Just INCOMING
-  then Relationship {
-      relationshipId = segmentRelationshipId segment,
-      relationshipType = segmentRelationshipType segment,
-      relationshipStartNodeId = nodeId $ segmentEndNode segment,
-      relationshipEndNodeId = nodeId $ segmentStartNode segment,
-      relationshipProperties = segmentRelationshipProperties segment
-    }
-  else Relationship {
-      relationshipId = segmentRelationshipId segment,
-      relationshipType = segmentRelationshipType segment,
-      relationshipStartNodeId = nodeId $ segmentStartNode segment,
-      relationshipEndNodeId = nodeId $ segmentEndNode segment,
-      relationshipProperties = segmentRelationshipProperties segment
-    }
-
-data Step v = MkStep {
-  stepNode         :: Node v,
-  stepRelationship :: Relationship v,
-  stepDirection    :: Direction
-}
-
-(--|) :: (Eq v) => Node v -> Relationship v -> Maybe (Step v)
-(--|) startNode rel =
-  if nodeId startNode == relationshipStartNodeId rel
-  then Just MkStep { stepNode = startNode, stepRelationship = rel, stepDirection = OUTGOING }
-  else Nothing
-
-(|->) :: (Eq v) => Maybe (Step v) -> Node v -> Maybe (Segment v)
-(|->) (Just step) endNode | stepDirection step == OUTGOING =
-    if nodeId endNode == relationshipEndNodeId rel
-    then Just Segment {
-      segmentDirection = if nodeId startNode == nodeId endNode then Nothing else Just OUTGOING,
-      segmentRelationshipId = relationshipId rel,
-      segmentRelationshipType = relationshipType rel,
-      segmentStartNode = startNode,
-      segmentEndNode = endNode,
-      segmentRelationshipProperties = relationshipProperties rel
-    }
-    else Nothing
-    where
-      startNode = stepNode step
-      rel = stepRelationship step
-(|->) _ _ = Nothing
-
-(<-|) :: (Eq v) => Node v -> Relationship v -> Maybe (Step v)
-(<-|) endNode rel =
-  if nodeId endNode == relationshipEndNodeId rel
-  then Just MkStep { stepNode = endNode, stepRelationship = rel, stepDirection = INCOMING }
-  else Nothing
-
-(|--) :: (Eq v) => Maybe (Step v) -> Node v -> Maybe (Segment v)
-(|--) (Just step) startNode | stepDirection step == INCOMING =
-    if nodeId startNode == relationshipStartNodeId rel
-    then Just Segment {
-      segmentDirection = if nodeId startNode == nodeId endNode then Nothing else Just INCOMING,
-      segmentRelationshipId = relationshipId rel,
-      segmentRelationshipType = relationshipType rel,
-      segmentStartNode = startNode,
-      segmentEndNode = endNode,
-      segmentRelationshipProperties = relationshipProperties rel
-    }
-    else Nothing
-    where
-      endNode = stepNode step
-      rel = stepRelationship step
-(|--) _ _ = Nothing
-
-data Path v = MkPath {
-  pathNodesMap         :: IM.IndexedMap Id (Node v),
-  pathRelationshipsMap :: IM.IndexedMap Id (Relationship v),
-  pathElements         :: V.Vector Int
-}
-
-deriving instance Eq v => Eq (Path v)
-deriving instance Ord v => Ord (Path v)
-deriving instance Show v => Show (Path v)
-
-instance Atomic v => Atomic (Path v) where
-  atomize MkPath {
-    pathNodesMap = nodesMap,
-    pathRelationshipsMap = relsMap,
-    pathElements = elts
-  } = AStructure _PATH
-      $ V.cons (atomize $ IM.values nodesMap)
-      $ V.cons (AVector $ V.map atomizeUnboundRelationship $ IM.values relsMap)
-      $ V.singleton (atomize elts)
-      where
-        atomizeUnboundRelationship rel = atomize UnboundRelationship {
-          unboundRelationshipId = relationshipId rel,
-          unboundRelationshipType = relationshipType rel,
-          unboundRelationshipProperties = relationshipProperties rel
-        }
-  construct (AStructure sig args) | sig == _PATH = do
-    nodes <- construct $ args V.! 0 :: Maybe (V.Vector (Node v))
-    unboundRels <- construct $ args V.! 1 :: Maybe (V.Vector (UnboundRelationship v))
-    elts <- construct $ args V.! 2 :: Maybe (V.Vector Int)
-    -- TODO construct path
-    return MkPath {
-      pathNodesMap = undefined,
-      pathRelationshipsMap = undefined,
-      pathElements = elts
-    }
-  construct _ = Nothing
-
-instance ValueCodec v => ValueCodec (Path v) where
+instance Invertible Direction where
+  inverse INCOMING = OUTGOING
+  inverse OUTGOING = INCOMING
 
 data UnboundRelationship v = UnboundRelationship {
   unboundRelationshipId         :: Id,
   unboundRelationshipType       :: RelationshipType,
   unboundRelationshipProperties :: Properties v
+} deriving (Eq, Show, Ord)
+
+unboundRelationship :: Relationship v -> UnboundRelationship v
+unboundRelationship rel = UnboundRelationship {
+  unboundRelationshipId = relationshipId rel,
+  unboundRelationshipType = relationshipType rel,
+  unboundRelationshipProperties = relationshipProperties rel
 }
 
 instance Atomic v => Atomic (UnboundRelationship v) where
@@ -290,6 +185,134 @@ instance Atomic v => Atomic (UnboundRelationship v) where
     }
   construct _ = Nothing
 
+data Step v = MkStep {
+  stepNode                :: Node v,
+  stepUnboundRelationship :: UnboundRelationship v,
+  stepDirection           :: Direction,
+  stepOtherNodeId         :: Id
+}
+
+(--|) :: (Eq v) => Node v -> Relationship v -> Maybe (Step v)
+(--|) startNode rel =
+  if nodeId startNode == relationshipStartNodeId rel
+  then Just MkStep {
+    stepNode = startNode,
+    stepUnboundRelationship = unboundRelationship rel,
+    stepDirection = OUTGOING,
+    stepOtherNodeId = relationshipEndNodeId rel
+  }
+  else Nothing
+
+(|->) :: (Eq v) => Maybe (Step v) -> Node v -> Maybe (Segment v)
+(|->) (Just step) endNode | stepDirection step == OUTGOING =
+    if stepOtherNodeId step == nodeId endNode
+    then Just Segment {
+      segmentDirection = if nodeId startNode == nodeId endNode then Nothing else Just OUTGOING,
+      segmentUnboundRelationship = stepUnboundRelationship step,
+      segmentStartNode = startNode,
+      segmentEndNode = endNode
+    }
+    else Nothing
+    where
+      startNode = stepNode step
+(|->) _ _ = Nothing
+
+(<-|) :: (Eq v) => Node v -> Relationship v -> Maybe (Step v)
+(<-|) endNode rel =
+  if nodeId endNode == relationshipEndNodeId rel
+  then Just MkStep {
+    stepNode = endNode,
+    stepUnboundRelationship = unboundRelationship rel,
+    stepDirection = INCOMING,
+    stepOtherNodeId = relationshipStartNodeId rel
+  }
+  else Nothing
+
+(|--) :: (Eq v) => Maybe (Step v) -> Node v -> Maybe (Segment v)
+(|--) (Just step) startNode | stepDirection step == INCOMING =
+    if stepOtherNodeId step == nodeId startNode
+    then Just Segment {
+      segmentDirection = if nodeId startNode == nodeId endNode then Nothing else Just INCOMING,
+      segmentUnboundRelationship = stepUnboundRelationship step,
+      segmentStartNode = startNode,
+      segmentEndNode = endNode
+    }
+    else Nothing
+    where
+      endNode = stepNode step
+(|--) _ _ = Nothing
+
+data Segment v = Segment {
+    segmentDirection           :: Maybe Direction,
+    segmentUnboundRelationship :: UnboundRelationship v,
+    segmentStartNode           :: Node v,
+    segmentEndNode             :: Node v
+}
+
+deriving instance Eq v => Eq (Segment v)
+deriving instance Ord v => Ord (Segment v)
+deriving instance Show v => Show (Segment v)
+
+instance Invertible (Segment v) where
+  inverse segment = segment {
+    segmentStartNode = segmentEndNode segment,
+    segmentEndNode = segmentStartNode segment,
+    segmentDirection = inverse $ segmentDirection segment
+  }
+
+segmentRelationship :: Segment v -> Relationship v
+segmentRelationship segment =
+  if segmentDirection segment == Just INCOMING
+  then Relationship {
+    relationshipStartNodeId = nodeId $ segmentEndNode segment,
+    relationshipEndNodeId = nodeId $ segmentStartNode segment,
+    relationshipId = unboundRelationshipId rel,
+    relationshipType = unboundRelationshipType rel,
+    relationshipProperties = unboundRelationshipProperties rel
+  }
+  else Relationship {
+    relationshipStartNodeId = nodeId $ segmentStartNode segment,
+    relationshipEndNodeId = nodeId $ segmentEndNode segment,
+    relationshipId = unboundRelationshipId rel,
+    relationshipType = unboundRelationshipType rel,
+    relationshipProperties = unboundRelationshipProperties rel
+  }
+  where
+    rel = segmentUnboundRelationship segment
+
+data Path v = MkPath {
+  pathNodesMap         :: IM.IndexedMap Id (Node v),
+  pathRelationshipsMap :: IM.IndexedMap Id (UnboundRelationship v),
+  pathElements         :: V.Vector Int
+}
+
+deriving instance Eq v => Eq (Path v)
+deriving instance Ord v => Ord (Path v)
+deriving instance Show v => Show (Path v)
+
+instance Atomic v => Atomic (Path v) where
+  atomize MkPath {
+    pathNodesMap = nodesMap,
+    pathRelationshipsMap = relsMap,
+    pathElements = elts
+  } = AStructure _PATH
+      $ V.cons (atomize $ IM.values nodesMap)
+      $ V.cons (AVector $ V.map atomize $ IM.values relsMap)
+      $ V.singleton (atomize elts)
+  construct (AStructure sig args) | sig == _PATH = do
+    nodes <- construct $ args V.! 0 :: Maybe (V.Vector (Node v))
+    unboundRels <- construct $ args V.! 1 :: Maybe (V.Vector (UnboundRelationship v))
+    elts <- construct $ args V.! 2 :: Maybe (V.Vector Int)
+    -- TODO Consistency check
+    return MkPath {
+      pathNodesMap = IM.extract nodeId nodes,
+      pathRelationshipsMap = IM.extract unboundRelationshipId unboundRels,
+      pathElements = elts
+    }
+  construct _ = Nothing
+
+instance ValueCodec v => ValueCodec (Path v) where
+
 singleNodePath :: Node v -> Path v
 singleNodePath startNode = MkPath {
   pathNodesMap = IM.singleton (nodeId startNode) startNode,
@@ -305,7 +328,7 @@ singleNodePath startNode = MkPath {
   if end path == startNode
   then do
     newPathNodesMap <- IM.insert startNodeId startNode (pathNodesMap path) >>= IM.insert endNodeId endNode
-    newPathRelsMap <- IM.insert relId rel $ pathRelationshipsMap path
+    newPathRelsMap <- IM.insert relId unboundRel $ pathRelationshipsMap path
     relIndex <- IM.index relId newPathRelsMap
     endNodeIndex <- IM.index endNodeId newPathNodesMap
     return $
@@ -321,8 +344,8 @@ singleNodePath startNode = MkPath {
     startNode = start segment
     endNodeId = nodeId endNode
     endNode = end segment
-    relId = segmentRelationshipId segment
-    rel = segmentRelationship segment
+    unboundRel = segmentUnboundRelationship segment
+    relId = unboundRelationshipId unboundRel
 (<+>) _ _ = Nothing
 
 pathLength :: Path v -> Int
@@ -334,27 +357,23 @@ pathNodes path = V.map nodeAtIndex $ V.ifilter nodeIndices $ pathElements path
     nodeAtIndex idx = pathNodesMap path IM.! idx
     nodeIndices idx _ = mod idx 2 == 1
 
-pathRelationships :: Path v -> V.Vector (Relationship v)
-pathRelationships path = V.map relAtIndex $ V.ifilter relIndices $ pathElements path
-  where
-    relAtIndex idx = pathRelationshipsMap path IM.! idx
-    relIndices idx _ = mod idx 2 == 0
+pathRelationships :: (Eq v) => Path v -> V.Vector (Relationship v)
+pathRelationships path = V.fromList $ map (segmentRelationship . fromJust) $ pathSegments_ path
 
 pathSegment :: (Eq v) => Int -> Path v -> Maybe (Segment v)
-pathSegment i path =
-  if i < 0 || i >= len
+pathSegment segmentId path =
+  if i >= len
   then Nothing
   else Just Segment {
     segmentDirection =
       if startNodeId == endNodeId then Nothing
-      else Just (if startNodeId == relationshipStartNodeId rel then OUTGOING else INCOMING),
-    segmentRelationshipId = relationshipId rel,
-    segmentRelationshipType = relationshipType rel,
+      else Just (if segmentId >= 0 then OUTGOING else INCOMING),
     segmentStartNode = startNode,
     segmentEndNode = endNode,
-    segmentRelationshipProperties = relationshipProperties rel
+    segmentUnboundRelationship = rel
   }
   where
+    i = abs segmentId
     len = pathLength path
     idx = i * 2
     elts = pathElements path
@@ -408,22 +427,5 @@ instance Directed (Path v) where
   start path = pathNodesMap path IM.! 0
   end path = pathNodesMap path IM.! (if V.null elts then 0 else V.last elts)
              where elts = pathElements path
-
-class Invertible a where
-  inverse :: a -> a
-
-instance Invertible a => Invertible (Maybe a) where
-  inverse = fmap inverse
-
-instance Invertible Direction where
-  inverse INCOMING = OUTGOING
-  inverse OUTGOING = INCOMING
-
-instance Invertible (Segment v) where
-  inverse segment = segment {
-    segmentStartNode = segmentEndNode segment,
-    segmentEndNode = segmentStartNode segment,
-    segmentDirection = inverse $ segmentDirection segment
-  }
 
 -- TODO instance invertible Path

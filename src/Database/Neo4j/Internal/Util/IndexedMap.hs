@@ -2,6 +2,7 @@ module Database.Neo4j.Internal.Util.IndexedMap(
   IndexedMap,
   empty,
   singleton,
+  extract,
   values,
   index,
   (!),
@@ -20,6 +21,12 @@ empty = MkIndexedMap V.empty M.empty
 
 singleton :: Ord k => k -> v -> IndexedMap k v
 singleton k v = MkIndexedMap (V.singleton v) (M.singleton k 0)
+
+extract :: Ord k => (v -> k) -> V.Vector v -> IndexedMap k v
+extract f vec = MkIndexedMap vec indexMap
+  where
+    indexMap = V.ifoldl indexValue M.empty vec
+    indexValue m i v = M.insert (f v) i m
 
 values :: IndexedMap k v -> V.Vector v
 values (MkIndexedMap v _) = v
